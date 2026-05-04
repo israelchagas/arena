@@ -1,11 +1,12 @@
 [build]
   command   = "pnpm run build"
   publish   = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
 
-# SPA redirect — todas as rotas apontam para index.html
+# SPA redirect
 [[redirects]]
   from   = "/*"
   to     = "/index.html"

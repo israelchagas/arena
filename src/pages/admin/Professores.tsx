@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { supabase, Professor, Evento, Associacao } from "@/lib/supabase";
+import { inviteProfessor } from "@/lib/functions";
 import { Spinner } from "@/components/ui/Spinner";
 import { toast } from "sonner";
 import {
@@ -122,20 +123,18 @@ export default function AdminProfessores() {
 
   async function onSubmit(data: FormData) {
     setSaving(true);
-    const { data: result, error } = await supabase.functions.invoke("invite-professor", {
-      body: {
-        action: "create",
-        nome: data.nome,
-        cpf: data.cpf.replace(/\D/g, ""),
-        email: data.email,
-        telefone: data.telefone || null,
-        graduacao: data.graduacao || null,
-        evento_id: data.evento_id,
-        associacao_id: data.associacao_id,
-      },
+    const { error } = await inviteProfessor({
+      action: "create",
+      nome: data.nome,
+      cpf: data.cpf.replace(/\D/g, ""),
+      email: data.email,
+      telefone: data.telefone || null,
+      graduacao: data.graduacao || null,
+      evento_id: data.evento_id,
+      associacao_id: data.associacao_id,
     });
-    if (error || result?.error) {
-      toast.error(result?.error ?? "Erro ao cadastrar professor");
+    if (error) {
+      toast.error(error);
     } else {
       toast.success("Professor cadastrado! E-mail com credenciais enviado.");
       setShowForm(false);
@@ -146,11 +145,9 @@ export default function AdminProfessores() {
 
   async function handleApprove(p: Professor) {
     setApproving(p.id);
-    const { data: result, error } = await supabase.functions.invoke("invite-professor", {
-      body: { action: "approve", professor_id: p.id },
-    });
-    if (error || result?.error) {
-      toast.error(result?.error ?? "Erro ao aprovar professor");
+    const { error } = await inviteProfessor({ action: "approve", professor_id: p.id });
+    if (error) {
+      toast.error(error);
     } else {
       toast.success(`${p.nome} aprovado! Credenciais enviadas por e-mail.`);
       loadData();
@@ -161,11 +158,9 @@ export default function AdminProfessores() {
   async function handleReject(p: Professor) {
     if (!confirm(`Rejeitar o cadastro de "${p.nome}"?`)) return;
     setRejecting(p.id);
-    const { data: result, error } = await supabase.functions.invoke("invite-professor", {
-      body: { action: "reject", professor_id: p.id },
-    });
-    if (error || result?.error) {
-      toast.error(result?.error ?? "Erro ao rejeitar");
+    const { error } = await inviteProfessor({ action: "reject", professor_id: p.id });
+    if (error) {
+      toast.error(error);
     } else {
       toast.success("Cadastro rejeitado.");
       loadData();
@@ -185,11 +180,9 @@ export default function AdminProfessores() {
   async function handleResend(p: Professor) {
     if (!confirm(`Reenviar convite para "${p.nome}"?\nIsso vai gerar uma nova senha.`)) return;
     setResending(p.id);
-    const { data: result, error } = await supabase.functions.invoke("invite-professor", {
-      body: { action: "resend", professor_id: p.id },
-    });
-    if (error || result?.error) {
-      toast.error(result?.error ?? "Erro ao reenviar");
+    const { error } = await inviteProfessor({ action: "resend", professor_id: p.id });
+    if (error) {
+      toast.error(error);
     } else {
       toast.success(`Novas credenciais enviadas para ${p.email}`);
     }
