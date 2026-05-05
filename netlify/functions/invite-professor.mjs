@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -122,7 +123,7 @@ export const handler = async (event) => {
     const clientOpts = (schema) => ({
       db: { schema },
       auth: { autoRefreshToken: false, persistSession: false },
-      realtime: { timeout: 1 },
+      realtime: { transport: ws },
       global: { fetch },
     });
 
