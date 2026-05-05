@@ -159,13 +159,13 @@ export default function AdminEventos() {
       }
       const payload = { nome: data.nome, modalidade: data.modalidade, data_inicio: data.data_inicio, data_fim: data.data_fim, data_inicio_inscricoes: data.data_inicio_inscricoes || null, data_fim_inscricoes: data.data_fim_inscricoes || null, local: data.local, cidade: data.cidade || null, uf: data.uf || null, status: data.status, descricao: data.descricao || null, max_inscricoes: data.max_inscricoes || null, logo_url };
       const { error } = await supabase.from("eventos").update(payload).eq("id", editing.id);
-      if (error) toast.error("Erro ao salvar");
+      if (error) toast.error(`Erro ao salvar: ${error.message}`);
       else { toast.success("Evento atualizado!"); setShowForm(false); loadEventos(); }
     } else {
       // Cria primeiro, depois faz upload com o ID gerado
       const payload = { nome: data.nome, modalidade: data.modalidade, data_inicio: data.data_inicio, data_fim: data.data_fim, data_inicio_inscricoes: data.data_inicio_inscricoes || null, data_fim_inscricoes: data.data_fim_inscricoes || null, local: data.local, cidade: data.cidade || null, uf: data.uf || null, status: data.status, descricao: data.descricao || null, max_inscricoes: data.max_inscricoes || null, logo_url: null };
       const { data: created, error } = await supabase.from("eventos").insert(payload).select("id").single();
-      if (error || !created) { toast.error("Erro ao criar"); setSaving(false); return; }
+      if (error || !created) { toast.error(`Erro ao criar: ${error?.message ?? "sem dados"}`); setSaving(false); return; }
 
       if (logoFile) {
         const url = await uploadLogo(created.id);
