@@ -119,13 +119,15 @@ export const handler = async (event) => {
     const body   = JSON.parse(event.body ?? "{}");
     const { action } = body;
 
-    const authClient = createClient(supabaseUrl, serviceKey, {
+    const clientOpts = (schema) => ({
+      db: { schema },
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { timeout: 1 },
+      global: { fetch },
     });
-    const arena = createClient(supabaseUrl, serviceKey, {
-      db: { schema: "arena" },
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+
+    const authClient = createClient(supabaseUrl, serviceKey, clientOpts("public"));
+    const arena = createClient(supabaseUrl, serviceKey, clientOpts("arena"));
 
     // ── Approve ────────────────────────────────────────────────────────────
     if (action === "approve") {
