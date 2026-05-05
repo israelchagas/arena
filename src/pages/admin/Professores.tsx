@@ -443,7 +443,7 @@ function ProfCard({
   deleting?: boolean;
 }) {
   const pal = palette(p.nome);
-  const isActive = !!p.invite_accepted_at;
+  const isActive = (p as any).status === "ativo";
 
   return (
     <div className={`bg-white border rounded-2xl p-5 shadow-sm transition-shadow hover:shadow-md ${pending ? "border-amber-200 bg-amber-50/30" : "border-gray-100"}`}>

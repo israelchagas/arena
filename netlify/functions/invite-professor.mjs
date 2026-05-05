@@ -201,13 +201,15 @@ export const handler = async (event) => {
         if (assocMatch) associacaoId = assocMatch.id;
       }
 
+      const now = new Date().toISOString();
       const { error: updateErr } = await arena
         .from("professores")
         .update({
           profile_id: profileId,
           associacao_id: associacaoId,
           status: "ativo",
-          invited_at: new Date().toISOString(),
+          invited_at: now,
+          invite_accepted_at: now,
         })
         .eq("id", professor_id);
 
