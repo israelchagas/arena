@@ -111,7 +111,7 @@ export const handler = async (event) => {
     const supabaseUrl  = process.env.SUPABASE_URL;
     const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const resendKey    = process.env.RESEND_API_KEY ?? "";
-    const appUrl       = process.env.APP_URL ?? "http://localhost:8888";
+    const appUrl       = (process.env.APP_URL ?? "http://localhost:8888").replace(/\/$/, "");
 
     if (!supabaseUrl || !serviceKey) {
       return respond({ error: "Variáveis de ambiente não configuradas" }, 500);
