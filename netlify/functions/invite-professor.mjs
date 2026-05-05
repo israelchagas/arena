@@ -143,6 +143,8 @@ export const handler = async (event) => {
 
       const password = generatePassword();
 
+      // Tenta criar usuário Auth — se já existir, reutiliza
+      let userId;
       const { data: authData, error: authErr } = await authClient.auth.admin.createUser({
         email: prof.email,
         password,
@@ -151,19 +153,39 @@ export const handler = async (event) => {
       });
 
       if (authErr) {
-        const conflict = authErr.message.toLowerCase().includes("already");
-        return respond({ error: conflict ? "Este e-mail já possui cadastro" : authErr.message }, conflict ? 409 : 500);
+        const isConflict = authErr.message.toLowerCase().includes("already");
+        if (!isConflict) return respond({ error: authErr.message }, 500);
+
+        // Usuário Auth já existe — busca pelo e-mail
+        const { data: listData, error: listErr } = await authClient.auth.admin.listUsers({ perPage: 1000 });
+        if (listErr) return respond({ error: "Erro ao buscar usuário existente" }, 500);
+        const existing = listData.users.find((u) => u.email === prof.email);
+        if (!existing) return respond({ error: "Usuário existente não localizado" }, 500);
+        userId = existing.id;
+
+        // Atualiza a senha para a nova gerada
+        await authClient.auth.admin.updateUserById(userId, { password });
+      } else {
+        userId = authData.user.id;
       }
 
-      const userId = authData.user.id;
+      // Verifica se já existe profile para este userId
+      let profileId;
+      const { data: existingProfile } = await arena
+        .from("profiles").select("id").eq("user_id", userId).single();
 
-      const { data: profileData, error: profileErr } = await arena
-        .from("profiles").insert({ user_id: userId, role: "professor", nome: prof.nome })
-        .select("id").single();
-
-      if (profileErr) {
-        await authClient.auth.admin.deleteUser(userId);
-        throw profileErr;
+      if (existingProfile) {
+        profileId = existingProfile.id;
+      } else {
+        const { data: profileData, error: profileErr } = await arena
+          .from("profiles").insert({ user_id: userId, role: "professor", nome: prof.nome })
+          .select("id").single();
+        if (profileErr) {
+          if (!authData) throw profileErr; // só deleta se foi recém criado
+          await authClient.auth.admin.deleteUser(userId);
+          throw profileErr;
+        }
+        profileId = profileData.id;
       }
 
       // Tenta vincular associacao_id a partir do nome informado no cadastro
@@ -182,17 +204,14 @@ export const handler = async (event) => {
       const { error: updateErr } = await arena
         .from("professores")
         .update({
-          profile_id: profileData.id,
+          profile_id: profileId,
           associacao_id: associacaoId,
           status: "ativo",
           invited_at: new Date().toISOString(),
         })
         .eq("id", professor_id);
 
-      if (updateErr) {
-        await authClient.auth.admin.deleteUser(userId);
-        throw updateErr;
-      }
+      if (updateErr) throw updateErr;
 
       try {
         await sendResend(resendKey, prof.email, prof.nome, prof.email, password, appUrl);

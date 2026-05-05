@@ -6,6 +6,12 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[dev]
+  command     = "pnpm run dev"
+  targetPort  = 3010
+  port        = 8888
+  autoLaunch  = false
+
 # SPA redirect
 [[redirects]]
   from   = "/*"
