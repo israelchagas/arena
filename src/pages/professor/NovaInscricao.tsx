@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase, Professor, Categoria } from "@/lib/supabase";
 import { FAIXAS_JUDO } from "@/lib/utils";
+import { sendCheckinEmail } from "@/lib/functions";
 import { Spinner } from "@/components/ui/Spinner";
 import { toast } from "sonner";
 import {
@@ -164,7 +165,7 @@ export default function NovaInscricao() {
     if (!professor) return;
     setSubmitting(true);
 
-    const { error } = await supabase.from("inscricoes").insert({
+    const { data: inserted, error } = await supabase.from("inscricoes").insert({
       evento_id: professor.evento_id,
       professor_id: professor.id,
       associacao_id: professor.associacao_id,
@@ -180,13 +181,17 @@ export default function NovaInscricao() {
       responsavel_nome: data.responsavel_nome.trim(),
       responsavel_cpf: data.responsavel_cpf.replace(/\D/g, ""),
       status: "confirmado",
-    });
+    }).select("id, atleta_email").single();
 
     setSubmitting(false);
 
     if (error) {
       toast.error("Erro ao salvar inscrição. Tente novamente.");
       return;
+    }
+
+    if (inserted?.id && inserted?.atleta_email) {
+      sendCheckinEmail(inserted.id);
     }
 
     setTotalInscritos((n) => n + 1);
