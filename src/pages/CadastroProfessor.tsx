@@ -101,7 +101,7 @@ export default function CadastroProfessor() {
       if (error.code === "23505") {
         toast.error("Este e-mail já está cadastrado para este evento.");
       } else {
-        toast.error("Erro ao enviar cadastro. Tente novamente.");
+        toast.error(`Erro ao enviar cadastro: ${error.message}`);
         console.error(error);
       }
       return;
