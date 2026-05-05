@@ -39,6 +39,14 @@ export default function ProfessorDashboard() {
 
     if (!prof) { setLoading(false); return; }
 
+    if (!prof.invite_accepted_at) {
+      await supabase
+        .from("professores")
+        .update({ invite_accepted_at: new Date().toISOString() })
+        .eq("id", prof.id);
+      prof.invite_accepted_at = new Date().toISOString();
+    }
+
     setProfessor(prof);
     setEvento((prof.eventos as Evento) ?? null);
 
