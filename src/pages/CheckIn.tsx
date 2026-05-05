@@ -104,7 +104,7 @@ export default function CheckIn() {
       // Busca inscrição pelo token
       const { data: insc, error } = await supabase
         .from("inscricoes")
-        .select("id, atleta_nome, atleta_data_nascimento, atleta_sexo, atleta_faixa, status, categorias(nome), associacoes(nome)")
+        .select("id, atleta_nome, atleta_data_nascimento, atleta_sexo, atleta_faixa, status, evento_id, categorias(nome), associacoes(nome)")
         .eq("check_in_token", token)
         .single();
 

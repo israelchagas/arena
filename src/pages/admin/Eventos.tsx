@@ -96,7 +96,7 @@ export default function AdminEventos() {
   const [catLoading, setCatLoading] = useState(false);
   const [catSaving, setCatSaving] = useState(false);
   const [editingCat, setEditingCat] = useState<Categoria | null>(null);
-  const emptyCat = { nome: "", sexo: "misto" as const, idade_min: "", idade_max: "", peso_min: "", peso_max: "" };
+  const emptyCat = { nome: "", sexo: "misto" as "M" | "F" | "misto", idade_min: "", idade_max: "", peso_min: "", peso_max: "" };
   const [catForm, setCatForm] = useState(emptyCat);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({

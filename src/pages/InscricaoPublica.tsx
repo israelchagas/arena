@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useParams } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -94,7 +95,8 @@ const inputCls = "w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl 
 
 // ── Página principal ─────────────────────────────────────────────────────────
 
-export default function InscricaoPublica({ professorId }: { professorId?: string }) {
+export default function InscricaoPublica() {
+  const { professorId } = useParams<{ professorId: string }>();
   const [professor, setProfessor] = useState<Professor | null>(null);
   const [evento, setEvento] = useState<Evento | null>(null);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -119,7 +121,7 @@ export default function InscricaoPublica({ professorId }: { professorId?: string
 
   useEffect(() => {
     if (professorId) loadData();
-    else setNotFound(true);
+    else { setNotFound(true); setLoading(false); }
   }, [professorId]);
 
   async function loadData() {

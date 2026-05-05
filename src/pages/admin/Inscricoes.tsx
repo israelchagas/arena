@@ -18,7 +18,7 @@ const STATUS_CFG = {
 export default function AdminInscricoes() {
   const [, navigate] = useLocation();
   const [inscricoes, setInscricoes] = useState<Inscricao[]>([]);
-  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventos, setEventos] = useState<Pick<Evento, "id" | "nome">[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [eventoFiltro, setEventoFiltro] = useState("todos");

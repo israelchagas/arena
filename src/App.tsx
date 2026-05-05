@@ -122,7 +122,9 @@ function AppRouter() {
       <Route path="/cadastro" component={CadastroProfessor} />
 
       {/* Inscrição pública de atleta via link do professor */}
-      <Route path="/inscrever/:professorId" component={InscricaoPublica} />
+      <Route path="/inscrever/:professorId">
+        <InscricaoPublica />
+      </Route>
 
       {/* Fallback */}
       <Route>

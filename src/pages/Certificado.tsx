@@ -10,6 +10,7 @@ import { CertificadoRenderer } from "@/components/CertificadoRenderer";
 interface CertData {
   atleta_nome: string;
   atleta_faixa?: string;
+  atleta_sexo?: string;
   categoria: string;
   associacao: string;
   evento_nome: string;
@@ -58,6 +59,7 @@ export default function Certificado() {
     setCert({
       atleta_nome: insc.atleta_nome,
       atleta_faixa: insc.atleta_faixa ?? undefined,
+      atleta_sexo: insc.atleta_sexo ?? undefined,
       categoria: (insc as any).categorias?.nome ?? "",
       associacao: (insc as any).associacoes?.nome ?? "",
       evento_nome: ev?.nome ?? "",
