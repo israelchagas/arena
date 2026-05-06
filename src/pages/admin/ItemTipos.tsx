@@ -3,13 +3,14 @@ import { useLocation } from "wouter";
 import { supabase, Evento } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/Spinner";
-import { Trophy, ArrowLeft, Package, Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Trophy, ArrowLeft, Package, Plus, Trash2, ChevronUp, ChevronDown, Pencil, Check, X } from "lucide-react";
 
 interface ItemTipo {
   id: string;
   nome: string;
   ordem: number;
   ativo: boolean;
+  quantidade: number | null;
 }
 
 export default function AdminItemTipos() {
@@ -19,8 +20,11 @@ export default function AdminItemTipos() {
   const [itens, setItens] = useState<ItemTipo[]>([]);
   const [loadingItens, setLoadingItens] = useState(false);
   const [novoNome, setNovoNome] = useState("");
+  const [novaQtd, setNovaQtd] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editingQtd, setEditingQtd] = useState<string | null>(null);
+  const [editQtdVal, setEditQtdVal] = useState("");
 
   useEffect(() => {
     supabase
@@ -43,7 +47,7 @@ export default function AdminItemTipos() {
     setLoadingItens(true);
     const { data } = await supabase
       .from("item_tipos")
-      .select("id, nome, ordem, ativo")
+      .select("id, nome, ordem, ativo, quantidade")
       .eq("evento_id", eventoId)
       .order("ordem");
     setItens(data ?? []);
@@ -55,13 +59,15 @@ export default function AdminItemTipos() {
     if (!nome || !eventoId) return;
     setSaving(true);
     const ordem = itens.length > 0 ? Math.max(...itens.map((i) => i.ordem)) + 1 : 0;
+    const quantidade = novaQtd.trim() ? parseInt(novaQtd, 10) : null;
     const { error } = await supabase
       .from("item_tipos")
-      .insert({ evento_id: eventoId, nome, ordem, ativo: true });
+      .insert({ evento_id: eventoId, nome, ordem, ativo: true, quantidade });
     if (error) {
       toast.error("Erro ao adicionar: " + error.message);
     } else {
       setNovoNome("");
+      setNovaQtd("");
       await loadItens();
       toast.success("Item adicionado!");
     }
@@ -88,6 +94,23 @@ export default function AdminItemTipos() {
     await Promise.all(
       next.map((item, i) => supabase.from("item_tipos").update({ ordem: i }).eq("id", item.id))
     );
+  }
+
+  function startEditQtd(item: ItemTipo) {
+    setEditingQtd(item.id);
+    setEditQtdVal(item.quantidade != null ? String(item.quantidade) : "");
+  }
+
+  async function saveQtd(id: string) {
+    const quantidade = editQtdVal.trim() ? parseInt(editQtdVal, 10) : null;
+    const { error } = await supabase.from("item_tipos").update({ quantidade }).eq("id", id);
+    if (error) {
+      toast.error("Erro ao salvar: " + error.message);
+    } else {
+      setItens((prev) => prev.map((i) => i.id === id ? { ...i, quantidade } : i));
+      toast.success("Quantidade atualizada!");
+    }
+    setEditingQtd(null);
   }
 
   return (
@@ -143,6 +166,14 @@ export default function AdminItemTipos() {
                   placeholder="Ex: Camiseta, Medalha, Kit do Atleta..."
                   className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                 />
+                <input
+                  value={novaQtd}
+                  onChange={(e) => setNovaQtd(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={(e) => e.key === "Enter" && addItem()}
+                  placeholder="Qtd"
+                  inputMode="numeric"
+                  className="w-20 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                />
                 <button
                   onClick={addItem}
                   disabled={saving || !novoNome.trim()}
@@ -152,6 +183,7 @@ export default function AdminItemTipos() {
                   Adicionar
                 </button>
               </div>
+              <p className="text-xs text-gray-400 mt-2">Qtd = total disponível. Deixe em branco para ilimitado.</p>
             </div>
 
             {/* Lista de itens */}
@@ -187,9 +219,43 @@ export default function AdminItemTipos() {
                       </button>
                     </div>
 
-                    <span className="text-xs font-black text-gray-200 w-5 text-center">{idx + 1}</span>
+                    <span className="text-xs font-black text-gray-200 w-5 text-center flex-shrink-0">{idx + 1}</span>
                     <Package className="w-4 h-4 text-blue-400 flex-shrink-0" />
                     <span className="flex-1 font-semibold text-gray-900 text-sm">{item.nome}</span>
+
+                    {/* Quantidade inline */}
+                    {editingQtd === item.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={editQtdVal}
+                          onChange={(e) => setEditQtdVal(e.target.value.replace(/\D/g, ""))}
+                          onKeyDown={(e) => { if (e.key === "Enter") saveQtd(item.id); if (e.key === "Escape") setEditingQtd(null); }}
+                          placeholder="—"
+                          inputMode="numeric"
+                          className="w-16 px-2 py-1 border border-blue-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button onClick={() => saveQtd(item.id)} className="p-1 text-green-600 hover:bg-green-50 rounded-lg transition-all">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingQtd(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg transition-all">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => startEditQtd(item)}
+                        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:text-blue-600 transition-all text-gray-500"
+                        title="Editar quantidade"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        {item.quantidade != null ? (
+                          <span className="font-bold">{item.quantidade} un.</span>
+                        ) : (
+                          <span className="text-gray-300">Ilimitado</span>
+                        )}
+                      </button>
+                    )}
 
                     <button
                       onClick={() => deleteItem(item.id)}
