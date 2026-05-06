@@ -188,17 +188,28 @@ export const handler = async (event) => {
         profileId = profileData.id;
       }
 
-      // Tenta vincular associacao_id a partir do nome informado no cadastro
+      // Vincula associacao_id — busca pelo nome; se não existir, cria automaticamente
       let associacaoId = prof.associacao_id ?? null;
       if (!associacaoId && prof.associacao_nome) {
+        const nomeTrimmed = prof.associacao_nome.trim();
         const { data: assocMatch } = await arena
           .from("associacoes")
           .select("id")
           .eq("evento_id", prof.evento_id)
-          .ilike("nome", prof.associacao_nome.trim())
+          .ilike("nome", nomeTrimmed)
           .limit(1)
           .single();
-        if (assocMatch) associacaoId = assocMatch.id;
+
+        if (assocMatch) {
+          associacaoId = assocMatch.id;
+        } else {
+          const { data: newAssoc } = await arena
+            .from("associacoes")
+            .insert({ evento_id: prof.evento_id, nome: nomeTrimmed, ativo: true })
+            .select("id")
+            .single();
+          if (newAssoc) associacaoId = newAssoc.id;
+        }
       }
 
       const now = new Date().toISOString();

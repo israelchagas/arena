@@ -485,10 +485,15 @@ function ProfCard({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {p.associacoes && (
+            {(p.associacoes || (p as any).associacao_nome) && (
               <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">
                 <Building2 className="w-3 h-3" />
-                {(p.associacoes as unknown as Associacao).nome}
+                {p.associacoes
+                  ? (p.associacoes as unknown as Associacao).nome
+                  : (p as any).associacao_nome}
+                {!p.associacoes && pending && (
+                  <span className="text-amber-500 ml-1" title="Associação será criada ao aprovar">*</span>
+                )}
               </span>
             )}
             {p.eventos && (
