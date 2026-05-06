@@ -16,7 +16,9 @@ import AdminInscricoes from "@/pages/admin/Inscricoes";
 import AdminRelatorios from "@/pages/admin/Relatorios";
 import AdminCredenciais from "@/pages/admin/Credenciais";
 import AdminCertificadoTemplate from "@/pages/admin/CertificadoTemplate";
+import AdminItemTipos from "@/pages/admin/ItemTipos";
 import CheckIn from "@/pages/CheckIn";
+import RetiradaItens from "@/pages/RetiradaItens";
 import Certificado from "@/pages/Certificado";
 import CadastroProfessor from "@/pages/CadastroProfessor";
 import InscricaoPublica from "@/pages/InscricaoPublica";
@@ -59,7 +61,7 @@ function ProtectedRoute({
 // ── Router ───────────────────────────────────────────────────────────────────
 
 // Rotas que não devem disparar redirect automático (públicas ou já protegidas)
-const SKIP_REDIRECT = ["/login", "/professor", "/admin", "/checkin", "/certificado", "/cadastro", "/inscrever"];
+const SKIP_REDIRECT = ["/login", "/professor", "/admin", "/checkin", "/retirada", "/certificado", "/cadastro", "/inscrever"];
 
 function AppRouter() {
   const { profile, loading } = useAuth();
@@ -113,6 +115,16 @@ function AppRouter() {
       {/* Check-in — staff/tablet */}
       <Route path="/checkin">
         <ProtectedRoute component={CheckIn} roles={["admin", "staff"]} />
+      </Route>
+
+      {/* Retirada de itens — staff/tablet */}
+      <Route path="/retirada">
+        <ProtectedRoute component={RetiradaItens} roles={["admin", "staff"]} />
+      </Route>
+
+      {/* Admin: configurar itens de retirada */}
+      <Route path="/admin/itens">
+        <ProtectedRoute component={AdminItemTipos} roles={["admin"]} />
       </Route>
 
       {/* Certificado — público */}

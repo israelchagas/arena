@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { Spinner } from "@/components/ui/Spinner";
-import { Trophy, Users, ClipboardList, LogOut, Calendar, ChevronRight, BarChart2, BadgeCheck, QrCode } from "lucide-react";
+import { Trophy, Users, ClipboardList, LogOut, Calendar, ChevronRight, BarChart2, BadgeCheck, QrCode, Package } from "lucide-react";
 import { formatDateLong } from "@/lib/utils";
 
 interface Stats {
@@ -67,6 +67,8 @@ export default function AdminDashboard() {
     { label: "Inscrições", icon: ClipboardList, path: "/admin/inscricoes", color: "text-green-600 bg-green-50" },
     { label: "Credenciais", icon: BadgeCheck, path: "/admin/credenciais", color: "text-rose-600 bg-rose-50" },
     { label: "Check-in", icon: QrCode, path: "/checkin", color: "text-cyan-600 bg-cyan-50" },
+    { label: "Retirada de Itens", icon: Package, path: "/retirada", color: "text-orange-600 bg-orange-50" },
+    { label: "Itens p/ Retirada", icon: Package, path: "/admin/itens", color: "text-indigo-600 bg-indigo-50" },
     { label: "Relatórios", icon: BarChart2, path: "/admin/relatorios", color: "text-amber-600 bg-amber-50" },
   ];
 
