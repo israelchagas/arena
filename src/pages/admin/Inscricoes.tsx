@@ -37,7 +37,7 @@ const schema = z.object({
   atleta_telefone:        z.string().optional(),
   responsavel_nome:       z.string().optional(),
   responsavel_cpf:        z.string().optional(),
-  status:                 z.enum(["confirmado", "pendente", "cancelado"]).default("confirmado"),
+  status:                 z.enum(["confirmado", "pendente", "cancelado"]),
 });
 
 type FormData = z.infer<typeof schema>;
