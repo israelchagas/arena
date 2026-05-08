@@ -1,16 +1,35 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase, Professor, Evento, Inscricao } from "@/lib/supabase";
-import { formatDateLong, calcularIdade } from "@/lib/utils";
+import { supabase, Professor, Evento, Inscricao, Categoria } from "@/lib/supabase";
+import { formatDateLong, calcularIdade, FAIXAS_JUDO } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import {
   Trophy, Calendar, MapPin, Users, PlusCircle, LogOut,
   QrCode, CheckCircle, BookOpen, ClipboardList,
   Clock, ChevronDown, ChevronUp, ChevronRight, Star, AlertCircle,
-  X, Share2, Download, Link2, Copy, Check,
+  X, Share2, Download, Link2, Copy, Check, Pencil, Trash2,
 } from "lucide-react";
+
+const editSchema = z.object({
+  atleta_nome:            z.string().min(3, "Mínimo 3 caracteres"),
+  atleta_data_nascimento: z.string().min(1, "Obrigatório"),
+  atleta_sexo:            z.enum(["M", "F"]),
+  categoria_id:           z.string().min(1, "Selecione a categoria"),
+  atleta_faixa:           z.string().min(1, "Selecione a graduação"),
+  atleta_peso:            z.coerce.number().min(1, "Informe o peso").max(300),
+  atleta_cpf:             z.string().optional(),
+  atleta_email:           z.string().email("E-mail inválido").optional().or(z.literal("")),
+  atleta_telefone:        z.string().optional(),
+  responsavel_nome:       z.string().optional(),
+  responsavel_cpf:        z.string().optional(),
+});
+type EditData = z.infer<typeof editSchema>;
 
 export default function ProfessorDashboard() {
   const { profile, signOut } = useAuth();
@@ -22,6 +41,12 @@ export default function ProfessorDashboard() {
   const [guiaAberto, setGuiaAberto] = useState(true);
   const [qrModal, setQrModal] = useState<Inscricao | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [editModal, setEditModal] = useState<Inscricao | null>(null);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const editForm = useForm<EditData>({ resolver: zodResolver(editSchema) });
 
   useEffect(() => {
     if (profile) loadData();
@@ -77,6 +102,60 @@ export default function ProfessorDashboard() {
       `🏆 *${evento?.nome ?? "Evento"}*\n\nUse o link abaixo para realizar sua inscrição:\n${url}`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
+  }
+
+  async function openEdit(insc: Inscricao) {
+    if (!professor) return;
+    if (categorias.length === 0) {
+      const { data } = await supabase.from("categorias").select("*").eq("evento_id", professor.evento_id).order("ordem");
+      setCategorias(data ?? []);
+    }
+    editForm.reset({
+      atleta_nome:            insc.atleta_nome,
+      atleta_data_nascimento: insc.atleta_data_nascimento,
+      atleta_sexo:            insc.atleta_sexo,
+      categoria_id:           insc.categoria_id ?? "",
+      atleta_faixa:           insc.atleta_faixa ?? "",
+      atleta_peso:            insc.atleta_peso ?? undefined,
+      atleta_cpf:             insc.atleta_cpf ?? "",
+      atleta_email:           insc.atleta_email ?? "",
+      atleta_telefone:        insc.atleta_telefone ?? "",
+      responsavel_nome:       insc.responsavel_nome ?? "",
+      responsavel_cpf:        insc.responsavel_cpf ?? "",
+    });
+    setEditModal(insc);
+  }
+
+  async function onEditSubmit(data: EditData) {
+    if (!editModal) return;
+    setSavingEdit(true);
+    const { error } = await supabase.from("inscricoes").update({
+      atleta_nome:            data.atleta_nome.trim(),
+      atleta_data_nascimento: data.atleta_data_nascimento,
+      atleta_sexo:            data.atleta_sexo,
+      categoria_id:           data.categoria_id,
+      atleta_faixa:           data.atleta_faixa,
+      atleta_peso:            data.atleta_peso,
+      atleta_cpf:             data.atleta_cpf?.replace(/\D/g, "") || null,
+      atleta_email:           data.atleta_email || null,
+      atleta_telefone:        data.atleta_telefone || null,
+      responsavel_nome:       data.responsavel_nome || null,
+      responsavel_cpf:        data.responsavel_cpf?.replace(/\D/g, "") || null,
+    }).eq("id", editModal.id);
+    setSavingEdit(false);
+    if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+    toast.success("Atleta atualizado!");
+    setEditModal(null);
+    loadData();
+  }
+
+  async function handleDeleteInscricao(insc: Inscricao) {
+    if (!confirm(`Excluir inscrição de "${insc.atleta_nome}"? Esta ação não pode ser desfeita.`)) return;
+    setDeletingId(insc.id);
+    const { error } = await supabase.from("inscricoes").delete().eq("id", insc.id);
+    if (error) toast.error("Erro ao excluir: " + error.message);
+    else { toast.success("Inscrição excluída"); setInscricoes((prev) => prev.filter((i) => i.id !== insc.id)); }
+    setDeletingId(null);
   }
 
   async function handleSignOut() {
@@ -412,12 +491,109 @@ export default function ProfessorDashboard() {
                   key={insc.id}
                   insc={insc}
                   onVerQR={() => setQrModal(insc)}
+                  onEdit={() => openEdit(insc)}
+                  onDelete={() => handleDeleteInscricao(insc)}
+                  deleting={deletingId === insc.id}
                 />
               ))}
             </div>
           )}
         </div>
       </main>
+
+      {/* ── Modal Editar Atleta ───────────────────────────────── */}
+      {editModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="font-black text-gray-900 text-sm">Editar Atleta</h2>
+                <p className="text-gray-400 text-xs mt-0.5">{editModal.atleta_nome}</p>
+              </div>
+              <button onClick={() => setEditModal(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="p-6 space-y-4">
+              {(() => {
+                const { register, formState: { errors }, watch } = editForm;
+                const sexo = watch("atleta_sexo");
+                const catsFiltradas = categorias.filter((c) => !c.sexo || c.sexo === "misto" || c.sexo === sexo);
+                const inp = "w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all";
+                const err = (msg?: string) => msg ? <p className="text-red-500 text-xs mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{msg}</p> : null;
+                return (
+                  <>
+                    <ELabel>Nome completo *</ELabel>
+                    <input {...register("atleta_nome")} className={inp} />
+                    {err(errors.atleta_nome?.message)}
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <ELabel>Data de nascimento *</ELabel>
+                        <input {...register("atleta_data_nascimento")} type="date" max={new Date().toISOString().split("T")[0]} className={inp} />
+                        {err(errors.atleta_data_nascimento?.message)}
+                      </div>
+                      <div>
+                        <ELabel>Sexo *</ELabel>
+                        <select {...register("atleta_sexo")} className={inp}>
+                          <option value="M">Masculino</option>
+                          <option value="F">Feminino</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <ELabel>Categoria *</ELabel>
+                    <select {...register("categoria_id")} className={inp}>
+                      <option value="">Selecione</option>
+                      {catsFiltradas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    </select>
+                    {err(errors.categoria_id?.message)}
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <ELabel>Graduação *</ELabel>
+                        <select {...register("atleta_faixa")} className={inp}>
+                          <option value="">Selecione</option>
+                          {FAIXAS_JUDO.map((f) => <option key={f} value={f}>{f}</option>)}
+                        </select>
+                        {err(errors.atleta_faixa?.message)}
+                      </div>
+                      <div>
+                        <ELabel>Peso (kg) *</ELabel>
+                        <input {...register("atleta_peso")} type="number" step="0.1" min="1" max="300" className={inp} />
+                        {err(errors.atleta_peso?.message)}
+                      </div>
+                    </div>
+
+                    <ELabel>CPF</ELabel>
+                    <input {...register("atleta_cpf")} placeholder="000.000.000-00" inputMode="numeric" maxLength={14} className={inp} />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><ELabel>E-mail</ELabel><input {...register("atleta_email")} type="email" className={inp} />{err(errors.atleta_email?.message)}</div>
+                      <div><ELabel>Telefone</ELabel><input {...register("atleta_telefone")} type="tel" className={inp} /></div>
+                    </div>
+
+                    <ELabel>Nome do responsável</ELabel>
+                    <input {...register("responsavel_nome")} className={inp} />
+
+                    <ELabel>CPF do responsável</ELabel>
+                    <input {...register("responsavel_cpf")} placeholder="000.000.000-00" inputMode="numeric" maxLength={14} className={inp} />
+                  </>
+                );
+              })()}
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditModal(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-all">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={savingEdit} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold text-sm transition-all">
+                  {savingEdit ? <><Spinner className="w-4 h-4" /> Salvando...</> : "Salvar alterações"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal QR Code ──────────────────────────────────────── */}
       {qrModal && (
@@ -547,7 +723,13 @@ function QRModal({ insc, eventoNome, onClose }: { insc: Inscricao; eventoNome: s
 
 // ── Linha do atleta ──────────────────────────────────────────────────────────
 
-function AtletaRow({ insc, onVerQR }: { insc: Inscricao; onVerQR: () => void }) {
+function AtletaRow({ insc, onVerQR, onEdit, onDelete, deleting }: {
+  insc: Inscricao;
+  onVerQR: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  deleting?: boolean;
+}) {
   const idade = calcularIdade(insc.atleta_data_nascimento);
   const sexoLabel = insc.atleta_sexo === "M" ? "Masculino" : "Feminino";
 
@@ -576,18 +758,24 @@ function AtletaRow({ insc, onVerQR }: { insc: Inscricao; onVerQR: () => void }) 
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+      <div className="flex items-center gap-2 flex-shrink-0 ml-4">
         <StatusBadge status={insc.status} />
-        <button
-          onClick={onVerQR}
-          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-          title="Ver QR Code"
-        >
-          <QrCode className="w-5 h-5" />
+        <button onClick={onVerQR} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Ver QR Code">
+          <QrCode className="w-4 h-4" />
+        </button>
+        <button onClick={onEdit} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" title="Editar">
+          <Pencil className="w-4 h-4" />
+        </button>
+        <button onClick={onDelete} disabled={deleting} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all disabled:opacity-40" title="Excluir">
+          {deleting ? <Spinner className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
         </button>
       </div>
     </div>
   );
+}
+
+function ELabel({ children }: { children: React.ReactNode }) {
+  return <label className="block text-sm font-semibold text-gray-700 mb-1">{children}</label>;
 }
 
 function StatusBadge({ status }: { status: Inscricao["status"] }) {

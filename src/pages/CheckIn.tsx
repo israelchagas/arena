@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import jsQR from "jsqr";
-import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/lib/supabase";
+import { BluetoothPrinter, PrintInfo } from "@/lib/bluetooth-printer";
 import { Spinner } from "@/components/ui/Spinner";
-import { Trophy, Camera, CheckCircle, XCircle, AlertTriangle, RotateCcw, User, Printer, PrinterCheck } from "lucide-react";
+import {
+  Trophy, Camera, CheckCircle, XCircle, AlertTriangle, RotateCcw,
+  User, Bluetooth, BluetoothOff, BluetoothConnected, PrinterCheck, Printer,
+} from "lucide-react";
 import { calcularIdade } from "@/lib/utils";
 
 type ScanState = "scanning" | "loading" | "success" | "already" | "error" | "nocamera";
+type PrinterStatus = "disconnected" | "connecting" | "connected" | "error";
 
 interface AtletaInfo {
   nome: string;
@@ -18,17 +23,8 @@ interface AtletaInfo {
   inscricaoId: string;
 }
 
-interface PrintData {
-  token: string;
-  nome: string;
-  sexo: "M" | "F";
-  dataNasc: string;
-  faixa?: string;
-  peso?: number;
-  categoria?: string;
-  associacao?: string;
+interface PrintData extends PrintInfo {
   inscricaoId: string;
-  eventoNome: string;
 }
 
 const FAIXA_COR: Record<string, string> = {
@@ -37,37 +33,48 @@ const FAIXA_COR: Record<string, string> = {
 };
 
 export default function CheckIn() {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
+  const animRef   = useRef<number>(0);
   const processingRef = useRef(false);
-
-  const [state, setState] = useState<ScanState>("scanning");
-  const [atleta, setAtleta] = useState<AtletaInfo | null>(null);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [totalHoje, setTotalHoje] = useState(0);
-  const [autoPrint, setAutoPrint] = useState(true);
-  const [printData, setPrintData] = useState<PrintData | null>(null);
   const printReadyRef = useRef(false);
+  const printerRef    = useRef<BluetoothPrinter | null>(null);
+
+  const [state, setState]             = useState<ScanState>("scanning");
+  const [atleta, setAtleta]           = useState<AtletaInfo | null>(null);
+  const [errorMsg, setErrorMsg]       = useState("");
+  const [totalHoje, setTotalHoje]     = useState(0);
+  const [autoPrint, setAutoPrint]     = useState(true);
+  const [printData, setPrintData]     = useState<PrintData | null>(null);
+  const [printerStatus, setPrinterStatus] = useState<PrinterStatus>("disconnected");
 
   useEffect(() => {
     startCamera();
     loadTotalHoje();
-    return () => { stopCamera(); };
+    return () => stopCamera();
   }, []);
 
-  // Dispara impressão quando printData é definido
+  // Trigger BLE print (or fallback) when printData is ready
   useEffect(() => {
     if (!printData || !autoPrint || printReadyRef.current) return;
     printReadyRef.current = true;
-    const timer = setTimeout(async () => {
-      window.print();
-      await supabase
-        .from("inscricoes")
-        .update({ sticker_printed: true })
-        .eq("id", printData.inscricaoId);
-    }, 300);
-    return () => clearTimeout(timer);
+    const { inscricaoId, ...info } = printData;
+
+    (async () => {
+      const printer = printerRef.current;
+      if (printer?.isConnected) {
+        try {
+          await printer.printCredencial(info);
+          await supabase.from("inscricoes").update({ sticker_printed: true }).eq("id", inscricaoId);
+        } catch (e) {
+          toast.error("Erro ao imprimir: " + (e as Error).message);
+        }
+      } else {
+        // Fallback: browser print (works if printer has a proper driver installed)
+        window.print();
+        await supabase.from("inscricoes").update({ sticker_printed: true }).eq("id", inscricaoId);
+      }
+    })();
   }, [printData, autoPrint]);
 
   async function loadTotalHoje() {
@@ -101,8 +108,7 @@ export default function CheckIn() {
   }
 
   function scanLoop() {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const video = videoRef.current, canvas = canvasRef.current;
     if (!video || !canvas || processingRef.current) {
       animRef.current = requestAnimationFrame(scanLoop);
       return;
@@ -112,13 +118,10 @@ export default function CheckIn() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
-    if (code?.data) {
-      processToken(code.data);
-    } else {
-      animRef.current = requestAnimationFrame(scanLoop);
-    }
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+    if (code?.data) processToken(code.data);
+    else animRef.current = requestAnimationFrame(scanLoop);
   }
 
   async function processToken(token: string) {
@@ -134,23 +137,14 @@ export default function CheckIn() {
         .eq("check_in_token", token)
         .single();
 
-      if (error || !insc) {
-        setErrorMsg("QR Code inválido ou não encontrado.");
-        setState("error");
-        return;
-      }
-
+      if (error || !insc) { setErrorMsg("QR Code inválido ou não encontrado."); setState("error"); return; }
       if (insc.status !== "confirmado") {
         setErrorMsg(`Inscrição com status "${insc.status}". Check-in não permitido.`);
-        setState("error");
-        return;
+        setState("error"); return;
       }
 
       const { data: existing } = await supabase
-        .from("checkins")
-        .select("id")
-        .eq("inscricao_id", insc.id)
-        .single();
+        .from("checkins").select("id").eq("inscricao_id", insc.id).single();
 
       const atletaInfo: AtletaInfo = {
         nome: insc.atleta_nome,
@@ -162,13 +156,8 @@ export default function CheckIn() {
         inscricaoId: insc.id,
       };
 
-      if (existing) {
-        setAtleta(atletaInfo);
-        setState("already");
-        return;
-      }
+      if (existing) { setAtleta(atletaInfo); setState("already"); return; }
 
-      // Registra check-in
       await supabase.from("checkins").insert({
         inscricao_id: insc.id,
         evento_id: insc.evento_id,
@@ -179,14 +168,8 @@ export default function CheckIn() {
       setTotalHoje((n) => n + 1);
       setState("success");
 
-      // Prepara dados de impressão
       if (autoPrint) {
-        const { data: evt } = await supabase
-          .from("eventos")
-          .select("nome")
-          .eq("id", insc.evento_id)
-          .single();
-
+        const { data: evt } = await supabase.from("eventos").select("nome").eq("id", insc.evento_id).single();
         printReadyRef.current = false;
         setPrintData({
           token,
@@ -217,9 +200,60 @@ export default function CheckIn() {
     animRef.current = requestAnimationFrame(scanLoop);
   }
 
+  async function connectPrinter() {
+    if (!BluetoothPrinter.isSupported()) {
+      toast.error("Bluetooth não disponível. Use Chrome no Android ou Windows/Mac Desktop.");
+      return;
+    }
+    // Disconnect any existing connection first
+    printerRef.current?.disconnect();
+    const printer = new BluetoothPrinter();
+    printerRef.current = printer;
+    setPrinterStatus("connecting");
+    try {
+      await printer.connect(() => {
+        setPrinterStatus("disconnected");
+        toast.error("Impressora desconectada.");
+      });
+      setPrinterStatus("connected");
+      toast.success("Impressora AL-3179 conectada!");
+    } catch (e) {
+      printerRef.current = null;
+      setPrinterStatus("error");
+      toast.error((e as Error).message);
+    }
+  }
+
+  function disconnectPrinter() {
+    printerRef.current?.disconnect();
+    printerRef.current = null;
+    setPrinterStatus("disconnected");
+  }
+
+  // Manually re-print last credential
+  async function rePrint() {
+    if (!printData) return;
+    const { inscricaoId, ...info } = printData;
+    const printer = printerRef.current;
+    if (printer?.isConnected) {
+      try { await printer.printCredencial(info); }
+      catch (e) { toast.error("Erro ao reimprimir: " + (e as Error).message); }
+    } else {
+      window.print();
+    }
+  }
+
+  // ── Printer button (cycles states) ─────────────────────────────────────────
+  const printerBtn = {
+    disconnected: { icon: Bluetooth,          label: "Conectar Impressora",  cls: "bg-white/5 border-white/10 text-white/40",                onClick: connectPrinter     },
+    connecting:   { icon: Spinner,             label: "Conectando...",        cls: "bg-blue-500/20 border-blue-400/40 text-blue-300 opacity-60", onClick: () => {}            },
+    connected:    { icon: BluetoothConnected,  label: "Impressora Conectada", cls: "bg-green-500/20 border-green-400/40 text-green-300",          onClick: disconnectPrinter  },
+    error:        { icon: BluetoothOff,        label: "Erro — Tentar de novo",cls: "bg-red-500/20 border-red-400/40 text-red-400",               onClick: connectPrinter     },
+  }[printerStatus];
+
   return (
     <>
-      {/* ── Interface de check-in ─────────────────────────────────── */}
+      {/* ── Interface principal ───────────────────────────── */}
       <div className="min-h-screen bg-[#0a0f1e] text-white flex flex-col print:hidden">
         <header className="px-6 py-4 flex items-center justify-between border-b border-white/10">
           <div className="flex items-center gap-3">
@@ -228,20 +262,34 @@ export default function CheckIn() {
             <span className="text-white/30 mx-2">·</span>
             <span className="text-white/60 text-sm">Check-in</span>
           </div>
-          <div className="flex items-center gap-3">
-            {/* Toggle impressão automática */}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+
+            {/* BLE printer button */}
+            <button
+              onClick={printerBtn.onClick}
+              disabled={printerStatus === "connecting"}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all ${printerBtn.cls}`}
+              title={printerBtn.label}
+            >
+              {printerStatus === "connecting"
+                ? <Spinner className="w-3.5 h-3.5" />
+                : <printerBtn.icon className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{printerBtn.label}</span>
+            </button>
+
+            {/* Auto-print toggle */}
             <button
               onClick={() => setAutoPrint((v) => !v)}
               className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all ${
-                autoPrint
-                  ? "bg-blue-500/20 border-blue-400/40 text-blue-300"
-                  : "bg-white/5 border-white/10 text-white/40"
+                autoPrint ? "bg-blue-500/20 border-blue-400/40 text-blue-300" : "bg-white/5 border-white/10 text-white/40"
               }`}
-              title={autoPrint ? "Impressão automática ativa" : "Impressão automática desativada"}
+              title={autoPrint ? "Auto-impressão ativa" : "Auto-impressão desativada"}
             >
               {autoPrint ? <PrinterCheck className="w-3.5 h-3.5" /> : <Printer className="w-3.5 h-3.5" />}
-              {autoPrint ? "Auto-imprimir" : "Sem impressão"}
+              <span className="hidden sm:inline">{autoPrint ? "Auto-imprimir" : "Sem impressão"}</span>
             </button>
+
+            {/* Counter */}
             <div className="flex items-center gap-2 bg-white/10 rounded-xl px-4 py-2">
               <CheckCircle className="w-4 h-4 text-green-400" />
               <span className="text-sm font-bold">{totalHoje} hoje</span>
@@ -251,7 +299,7 @@ export default function CheckIn() {
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
 
-          {/* Câmera */}
+          {/* Camera viewport */}
           <div className="relative w-full max-w-sm aspect-square rounded-2xl overflow-hidden bg-black border-2 border-white/20">
             <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
             <canvas ref={canvasRef} className="hidden" />
@@ -264,7 +312,7 @@ export default function CheckIn() {
                     <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr-lg" />
                     <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl-lg" />
                     <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br-lg" />
-                    <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-400/80 animate-[scan_2s_ease-in-out_infinite]" style={{ animation: "scan 2s ease-in-out infinite" }} />
+                    <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-400/80" style={{ animation: "scan 2s ease-in-out infinite" }} />
                   </div>
                 </div>
                 <div className="absolute bottom-4 inset-x-0 text-center">
@@ -292,7 +340,12 @@ export default function CheckIn() {
               type="success"
               atleta={atleta}
               onReset={resetScan}
-              message={autoPrint ? "Check-in realizado! Imprimindo..." : "Check-in realizado!"}
+              onRePrint={autoPrint ? rePrint : undefined}
+              message={
+                autoPrint
+                  ? printerStatus === "connected" ? "Check-in realizado! Imprimindo via BLE..." : "Check-in realizado! Imprimindo..."
+                  : "Check-in realizado!"
+              }
             />
           )}
 
@@ -301,6 +354,7 @@ export default function CheckIn() {
               type="already"
               atleta={atleta}
               onReset={resetScan}
+              onRePrint={undefined}
               message="Check-in já registrado"
             />
           )}
@@ -315,110 +369,96 @@ export default function CheckIn() {
               </button>
             </div>
           )}
+
+          {/* BLE connection help */}
+          {printerStatus === "disconnected" && (
+            <p className="text-white/30 text-xs text-center max-w-xs">
+              Ligue a impressora AL-3179, clique em <strong className="text-white/50">Conectar Impressora</strong> e selecione-a na lista do navegador.
+            </p>
+          )}
         </div>
       </div>
 
-      {/* ── Credencial para impressão ────────────────────────────────── */}
+      {/* ── Fallback CSS print (used only when BLE not connected) ─────────── */}
       {printData && (
         <div className="hidden print:block">
           <style>{`
             @media print {
-              @page { size: 80mm 50mm; margin: 2mm; }
+              @page { size: 58mm auto; margin: 1mm 2mm; }
               body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .credential-card {
-                display: flex;
-                flex-direction: column;
-                width: 76mm;
-                height: 46mm;
-                overflow: hidden;
-                box-sizing: border-box;
-              }
             }
           `}</style>
-          <CredencialPrint data={printData} />
+          <FallbackPrint data={printData} />
         </div>
       )}
 
       <style>{`
-        @keyframes scan {
-          0%, 100% { top: 0%; }
-          50% { top: calc(100% - 2px); }
-        }
+        @keyframes scan { 0%, 100% { top: 0 } 50% { top: calc(100% - 2px) } }
       `}</style>
     </>
   );
 }
 
-// ── Credencial de impressão ──────────────────────────────────────────────────
+// ── Fallback browser-print layout (58mm CSS) ─────────────────────────────────
+// Used only when the printer is NOT connected via BLE.
+// Requires the printer to be installed as a system printer with a proper driver.
 
-function CredencialPrint({ data: d }: { data: PrintData }) {
+import { QRCodeSVG } from "qrcode.react";
+
+function FallbackPrint({ data: d }: { data: PrintData }) {
+  const idade = calcularIdade(d.dataNasc);
   const corFaixa = FAIXA_COR[d.faixa ?? ""] ?? "#374151";
   const textoFaixa = d.faixa === "Branca" || d.faixa === "Amarela" ? "#111827" : "#fff";
-  const idade = calcularIdade(d.dataNasc);
 
   return (
-    <div
-      className="credential-card"
-      style={{ fontFamily: "Arial, Helvetica, sans-serif", border: "0.5px solid #cbd5e1", borderRadius: "2mm", background: "#fff" }}
-    >
-      <div style={{
-        background: "#0f172a", color: "#fff", padding: "1.5mm 3mm",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        flexShrink: 0, borderRadius: "1.5mm 1.5mm 0 0",
-      }}>
-        <span style={{ fontWeight: 900, fontSize: "7.5pt", letterSpacing: "-0.2px" }}>🏆 Arena</span>
-        <span style={{ fontSize: "5.5pt", color: "#93c5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55mm" }}>
-          {d.eventoNome}
-        </span>
+    <div style={{
+      fontFamily: "Arial, Helvetica, sans-serif",
+      width: "54mm",
+      padding: "1mm",
+      boxSizing: "border-box",
+      fontSize: "7pt",
+      color: "#111",
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", borderBottom: "0.5px solid #ccc", paddingBottom: "1mm", marginBottom: "1.5mm" }}>
+        <div style={{ fontWeight: 900, fontSize: "9pt" }}>ARENA</div>
+        <div style={{ fontSize: "6pt", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{d.eventoNome}</div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: "2mm 3mm", gap: "3mm", flex: 1 }}>
-        <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: "1mm" }}>
-          <QRCodeSVG value={d.token} size={112} level="M" includeMargin={false} />
-          <span style={{ fontSize: "4pt", color: "#cbd5e1", fontFamily: "monospace", letterSpacing: "0.5px" }}>
-            {d.token.slice(0, 8)}
-          </span>
-        </div>
+      {/* Name */}
+      <div style={{ textAlign: "center", fontWeight: 900, fontSize: "10pt", marginBottom: "1mm", wordBreak: "break-word" }}>{d.nome}</div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "1.5mm", minWidth: 0 }}>
-          <p style={{ margin: 0, fontWeight: 900, fontSize: "11pt", color: "#0f172a", lineHeight: 1.1, wordBreak: "break-word" }}>
-            {d.nome}
-          </p>
-          {d.categoria && (
-            <p style={{ margin: 0, fontSize: "7.5pt", color: "#1d4ed8", fontWeight: 700 }}>{d.categoria}</p>
-          )}
-          {d.associacao && (
-            <p style={{ margin: 0, fontSize: "6.5pt", color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {d.associacao}
-            </p>
-          )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5mm", alignItems: "center" }}>
-            <span style={{ fontSize: "6pt", background: "#f1f5f9", color: "#475569", padding: "0.5mm 2mm", borderRadius: "999px", fontWeight: 600 }}>
-              {d.sexo === "M" ? "Masc." : "Fem."} · {idade}a
-            </span>
-            {d.faixa && (
-              <span style={{ fontSize: "6pt", fontWeight: 700, background: corFaixa, color: textoFaixa, padding: "0.5mm 2.5mm", borderRadius: "999px", whiteSpace: "nowrap" }}>
-                {d.faixa}
-              </span>
-            )}
-            {d.peso && (
-              <span style={{ fontSize: "6pt", background: "#f1f5f9", color: "#475569", padding: "0.5mm 2mm", borderRadius: "999px", fontWeight: 600 }}>
-                {d.peso} kg
-              </span>
-            )}
-          </div>
-        </div>
+      {/* Details */}
+      {d.categoria && <div style={{ textAlign: "center", color: "#1d4ed8", fontWeight: 700, fontSize: "7pt" }}>{d.categoria}</div>}
+      {d.associacao && <div style={{ textAlign: "center", color: "#555", fontSize: "6pt", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{d.associacao}</div>}
+      <div style={{ textAlign: "center", fontSize: "6pt", margin: "1mm 0", display: "flex", justifyContent: "center", gap: "2mm", flexWrap: "wrap" }}>
+        <span>{d.sexo === "M" ? "Masc" : "Fem"} · {idade} anos</span>
+        {d.peso && <span>{d.peso} kg</span>}
+        {d.faixa && (
+          <span style={{ background: corFaixa, color: textoFaixa, padding: "0 1.5mm", borderRadius: "999px" }}>
+            {d.faixa}
+          </span>
+        )}
+      </div>
+
+      {/* QR */}
+      <div style={{ textAlign: "center", margin: "1.5mm 0 1mm" }}>
+        <QRCodeSVG value={d.token} size={130} level="M" includeMargin={false} />
+      </div>
+      <div style={{ textAlign: "center", fontSize: "5pt", color: "#aaa", fontFamily: "monospace" }}>
+        {d.token.slice(0, 8).toUpperCase()}
       </div>
     </div>
   );
 }
 
-// ── Card de resultado ────────────────────────────────────────────────────────
+// ── Result card ───────────────────────────────────────────────────────────────
 
-function ResultCard({ type, atleta, onReset, message }: {
+function ResultCard({ type, atleta, onReset, onRePrint, message }: {
   type: "success" | "already";
   atleta: AtletaInfo;
   onReset: () => void;
+  onRePrint?: () => void;
   message: string;
 }) {
   const isSuccess = type === "success";
@@ -451,12 +491,23 @@ function ResultCard({ type, atleta, onReset, message }: {
         </div>
       </div>
 
-      <button
-        onClick={onReset}
-        className="mt-4 w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-sm font-bold transition-all"
-      >
-        <RotateCcw className="w-4 h-4" /> Próximo atleta
-      </button>
+      <div className="mt-4 flex gap-2">
+        {onRePrint && (
+          <button
+            onClick={onRePrint}
+            className="flex items-center justify-center gap-2 flex-1 bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-sm font-semibold transition-all"
+            title="Reimprimir credencial"
+          >
+            <PrinterCheck className="w-4 h-4" /> Reimprimir
+          </button>
+        )}
+        <button
+          onClick={onReset}
+          className="flex items-center justify-center gap-2 flex-1 bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-sm font-bold transition-all"
+        >
+          <RotateCcw className="w-4 h-4" /> Próximo atleta
+        </button>
+      </div>
     </div>
   );
 }
