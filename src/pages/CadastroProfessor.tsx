@@ -143,6 +143,32 @@ export default function CadastroProfessor() {
     setNomeParticipante(form.nomeCompleto);
     setStep(5);
     window.scrollTo({ top: 0, behavior: "smooth" });
+
+    // Envia email em background (não bloqueia a tela de sucesso)
+    fetch("/.netlify/functions/send-inscricao-festival", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        atleta_nome: form.nomeCompleto.trim(),
+        atleta_data_nascimento: form.dataNascimento,
+        atleta_sexo: sexoMap[form.sexo] ?? "outro",
+        atleta_cpf: form.cpfCrianca || null,
+        atleta_rg: form.rgCrianca || null,
+        atleta_rg_orgao: form.rgOrgaoExpedidor || null,
+        atleta_faixa: form.faixa || null,
+        atleta_endereco: form.enderecoCompleto || null,
+        responsavel_nome: form.responsavelNome,
+        responsavel_cpf: form.responsavelCpf || null,
+        responsavel_rg: form.responsavelRg || null,
+        responsavel_tel: form.responsavelTelefone,
+        responsavel_email: form.responsavelEmail || null,
+        responsavel_relacao: form.responsavelRelacao,
+        pratica_judo: form.praticaJudo,
+        instituicao_judo: form.instituicao || null,
+        autorizacao_aceita: form.autorizacaoAceita,
+        numero_inscricao: numero,
+      }),
+    }).catch(() => {/* ignora erro silenciosamente */});
   };
 
   const copiarNumero = () => {
