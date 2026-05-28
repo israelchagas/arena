@@ -1,468 +1,666 @@
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { supabase, Evento, Associacao } from "@/lib/supabase";
-import { Spinner } from "@/components/ui/Spinner";
+import { useState } from "react";
+import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 import {
-  Trophy, User, Mail, Phone, Award, CheckCircle,
-  AlertCircle, Building2, Calendar, MapPin, ChevronRight,
-  ClipboardList, Shield,
+  CheckCircle, ArrowLeft, ArrowRight, User, Users, Send, Loader2,
+  Trophy, Copy, Check, ChevronRight, MapPin, Phone, AtSign,
 } from "lucide-react";
 
-// ── CPF ──────────────────────────────────────────────────────────────────────
+const STEPS = [
+  { id: 1, title: "Participante", icon: User },
+  { id: 2, title: "Responsável", icon: Users },
+  { id: 3, title: "Esporte", icon: Trophy },
+  { id: 4, title: "Confirmar", icon: Send },
+];
 
-function formatCPF(v: string) {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
-  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
-  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+const RELACAO_OPTIONS = [
+  { value: "pai", label: "Pai" },
+  { value: "mae", label: "Mãe" },
+  { value: "avo", label: "Avô" },
+  { value: "ava", label: "Avó" },
+  { value: "tio", label: "Tio" },
+  { value: "tia", label: "Tia" },
+  { value: "tutor", label: "Tutor(a)" },
+  { value: "outro", label: "Outro" },
+];
+
+function MrnLogo() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+        <rect width="44" height="44" rx="8" fill="#1565C0" />
+        <rect x="5" y="5" width="15" height="12" rx="1.5" fill="white" opacity="0.9"/>
+        <rect x="12" y="5" width="1" height="12" fill="#1565C0" opacity="0.4"/>
+        <rect x="6.5" y="8" width="4" height="1" fill="#1565C0" opacity="0.3"/>
+        <rect x="6.5" y="10.5" width="4" height="1" fill="#1565C0" opacity="0.3"/>
+        <circle cx="32" cy="11" r="7" fill="white" opacity="0.9"/>
+        <circle cx="32" cy="11" r="7" fill="none" stroke="#1565C0" strokeWidth="0.5" opacity="0.2"/>
+        <path d="M32 4 L32 18 M25.5 7.5 L38.5 14.5 M25.5 14.5 L38.5 7.5" stroke="#1565C0" strokeWidth="0.8" opacity="0.3"/>
+        <rect x="5" y="26" width="15" height="10" rx="3.5" fill="white" opacity="0.9"/>
+        <rect x="11" y="28.5" width="1" height="5" fill="#1565C0" opacity="0.3"/>
+        <rect x="8.5" y="30.5" width="5" height="1" fill="#1565C0" opacity="0.3"/>
+        <circle cx="18" cy="29.5" r="1" fill="#1565C0" opacity="0.3"/>
+        <circle cx="16.5" cy="32" r="1" fill="#1565C0" opacity="0.3"/>
+        <rect x="24" y="26" width="15" height="10" rx="2" fill="white" opacity="0.9"/>
+        <path d="M31.5 26 Q31.5 23 34 23 Q36.5 23 36.5 26" fill="white" opacity="0.9"/>
+        <path d="M39 30 Q42 30 42 32.5 Q42 35 39 35" fill="white" opacity="0.9"/>
+      </svg>
+      <div>
+        <div className="font-black text-blue-800 text-base leading-none tracking-wide">MRN</div>
+        <div className="text-blue-600 text-xs font-medium tracking-wider">Educacional</div>
+      </div>
+    </div>
+  );
 }
 
-// ── Schema ───────────────────────────────────────────────────────────────────
-
-const schema = z.object({
-  nome: z.string().min(3, "Nome completo obrigatório"),
-  cpf: z
-    .string()
-    .min(1, "CPF obrigatório")
-    .refine((v) => v.replace(/\D/g, "").length === 11, "CPF inválido (11 dígitos)"),
-  email: z.string().email("E-mail inválido"),
-  telefone: z.string().optional(),
-  graduacao: z.string().optional(),
-  evento_id: z.string().min(1, "Selecione o evento"),
-  associacao_nome: z.string().min(2, "Informe o nome da sua associação ou academia"),
-});
-
-type FormData = z.infer<typeof schema>;
-
-// ── Page ─────────────────────────────────────────────────────────────────────
+function calcularIdade(dataNascimento: string): number | null {
+  if (!dataNascimento) return null;
+  const hoje = new Date();
+  const nasc = new Date(dataNascimento);
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const m = hoje.getMonth() - nasc.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
+  return idade >= 0 ? idade : null;
+}
 
 export default function CadastroProfessor() {
-  const [eventos, setEventos] = useState<Evento[]>([]);
-  const [associacoes, setAssociacoes] = useState<Associacao[]>([]);
-  const [loadingEventos, setLoadingEventos] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [sucesso, setSucesso] = useState(false);
-  const [eventoSelecionado, setEventoSelecionado] = useState<Evento | null>(null);
+  const [, navigate] = useLocation();
+  const [step, setStep] = useState(1);
+  const [numeroProtocolo, setNumeroProtocolo] = useState("");
+  const [nomeParticipante, setNomeParticipante] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  const [enviando, setEnviando] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    formState: { errors },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  const [form, setForm] = useState({
+    nomeCompleto: "",
+    dataNascimento: "",
+    sexo: "" as "masculino" | "feminino" | "outro" | "",
+    cpfCrianca: "",
+    rgCrianca: "",
+    rgOrgaoExpedidor: "",
+    enderecoCompleto: "",
 
-  const eventoId = watch("evento_id");
+    responsavelNome: "",
+    responsavelCpf: "",
+    responsavelRg: "",
+    responsavelTelefone: "",
+    responsavelEmail: "",
+    responsavelRelacao: "mae" as "pai" | "mae" | "avo" | "ava" | "tio" | "tia" | "tutor" | "outro",
 
-  useEffect(() => {
-    supabase
-      .from("eventos")
-      .select("*")
-      .eq("status", "aberto")
-      .order("data_inicio")
-      .then(({ data }) => {
-        setEventos(data ?? []);
-        setLoadingEventos(false);
-      });
-  }, []);
+    praticaJudo: null as boolean | null,
+    faixa: "",
+    instituicao: "",
 
-  useEffect(() => {
-    if (!eventoId) { setAssociacoes([]); setEventoSelecionado(null); return; }
-    setEventoSelecionado(eventos.find((e) => e.id === eventoId) ?? null);
-    supabase
-      .from("associacoes")
-      .select("*")
-      .eq("evento_id", eventoId)
-      .eq("ativo", true)
-      .order("nome")
-      .then(({ data }) => setAssociacoes(data ?? []));
-  }, [eventoId, eventos]);
+    autorizacaoAceita: false,
+  });
 
-  async function onSubmit(data: FormData) {
-    setSubmitting(true);
-    const { error } = await supabase.from("professores").insert({
-      nome: data.nome.trim(),
-      cpf: data.cpf.replace(/\D/g, ""),
-      email: data.email.trim().toLowerCase(),
-      telefone: data.telefone || null,
-      graduacao: data.graduacao || null,
-      evento_id: data.evento_id,
-      associacao_nome: data.associacao_nome.trim(),
+  const update = (field: string, value: unknown) => setForm(f => ({ ...f, [field]: value }));
+  const idade = calcularIdade(form.dataNascimento);
+
+  const canNext = () => {
+    if (step === 1) return !!(form.nomeCompleto.trim() && form.dataNascimento && form.sexo && form.enderecoCompleto.trim());
+    if (step === 2) return !!(form.responsavelNome.trim() && form.responsavelCpf.trim() && form.responsavelRg.trim() && form.responsavelTelefone.trim() && form.responsavelRelacao);
+    if (step === 3) return form.praticaJudo !== null && form.autorizacaoAceita;
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    setEnviando(true);
+    const sexoMap: Record<string, string> = { masculino: "M", feminino: "F", outro: "outro" };
+    const numero = `${new Date().getFullYear()}${Math.floor(10000 + Math.random() * 90000)}`;
+
+    const { error } = await supabase.from("inscricoes").insert({
+      atleta_nome: form.nomeCompleto.trim(),
+      atleta_data_nascimento: form.dataNascimento,
+      atleta_sexo: sexoMap[form.sexo] ?? "outro",
+      atleta_cpf: form.cpfCrianca || null,
+      atleta_rg: form.rgCrianca || null,
+      atleta_rg_orgao: form.rgOrgaoExpedidor || null,
+      atleta_faixa: form.faixa || null,
+      atleta_endereco: form.enderecoCompleto || null,
+      responsavel_nome: form.responsavelNome,
+      responsavel_cpf: form.responsavelCpf || null,
+      responsavel_rg: form.responsavelRg || null,
+      responsavel_tel: form.responsavelTelefone,
+      responsavel_email: form.responsavelEmail || null,
+      responsavel_relacao: form.responsavelRelacao,
+      pratica_judo: form.praticaJudo,
+      instituicao_judo: form.instituicao || null,
+      autorizacao_aceita: form.autorizacaoAceita,
+      numero_inscricao: numero,
       status: "pendente",
     });
 
-    setSubmitting(false);
+    setEnviando(false);
 
     if (error) {
-      if (error.code === "23505") {
-        toast.error("Este e-mail já está cadastrado para este evento.");
-      } else {
-        toast.error(`Erro ao enviar cadastro: ${error.message}`);
-        console.error(error);
-      }
+      toast.error(`Erro ao enviar inscrição: ${error.message}`);
       return;
     }
 
-    setSucesso(true);
-  }
+    setNumeroProtocolo(numero);
+    setNomeParticipante(form.nomeCompleto);
+    setStep(5);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-  // ── Tela de sucesso ───────────────────────────────────────────────────────
-  if (sucesso) {
+  const copiarNumero = () => {
+    navigator.clipboard.writeText(numeroProtocolo).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    });
+  };
+
+  // ── Tela de sucesso ────────────────────────────────────────────────────────
+  if (step === 5) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          {/* Logo */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center gap-2 text-white">
-              <Trophy className="w-7 h-7 text-blue-400" />
-              <span className="font-black text-2xl tracking-tight">Arena</span>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
+        <header className="bg-white border-b border-gray-100 px-4 py-4 shadow-sm">
+          <div className="max-w-2xl mx-auto flex items-center gap-3">
+            <MrnLogo />
+            <div className="ml-2 border-l border-gray-200 pl-3">
+              <p className="text-xs text-gray-400">Festival de Judô – Cultura de Campeões</p>
+              <p className="text-xs font-semibold text-gray-600">Fomento: 986080/2025</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+          <div className="overflow-hidden rounded-2xl border-0 shadow-xl shadow-green-100/60">
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-8 text-center">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-12 h-12 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-1">Inscrição enviada!</h2>
+              <p className="text-green-100 text-sm">
+                Solicitação recebida com sucesso para <strong className="text-white">{nomeParticipante}</strong>
+              </p>
+            </div>
+
+            <div className="px-6 py-5 bg-white">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest text-center mb-3">
+                Número de Protocolo
+              </p>
+              <div className="flex items-center justify-center gap-3 bg-blue-50 border-2 border-blue-200 rounded-2xl px-6 py-4">
+                <span className="text-3xl font-bold text-blue-700 tracking-wider font-mono">
+                  {numeroProtocolo}
+                </span>
+                <button
+                  onClick={copiarNumero}
+                  className="p-2 rounded-lg hover:bg-blue-100 transition-colors text-blue-500"
+                  title="Copiar número"
+                >
+                  {copiado ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
+                </button>
+              </div>
+              <p className="text-center text-xs text-gray-400 mt-2">
+                Guarde este número para acompanhar o status da inscrição
+              </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
-            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-10 h-10 text-green-500" />
-            </div>
-            <h2 className="text-2xl font-black text-gray-900 mb-3">Cadastro enviado!</h2>
-            <p className="text-gray-500 text-sm leading-relaxed mb-6">
-              Seu cadastro foi recebido e está aguardando aprovação do organizador.
-              Assim que for aprovado, você receberá um <strong>e-mail com suas credenciais de acesso</strong>.
-            </p>
-
-            {eventoSelecionado && (
-              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-left mb-6">
-                <p className="text-xs font-bold text-blue-400 uppercase tracking-wide mb-2">Evento selecionado</p>
-                <p className="font-bold text-blue-900 text-sm">{eventoSelecionado.nome}</p>
-                <div className="flex items-center gap-3 mt-1.5 text-blue-600 text-xs">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5" />
-                    {new Date(eventoSelecionado.data_inicio + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5" />
-                    {eventoSelecionado.local}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2 text-left text-sm text-gray-500 bg-gray-50 rounded-2xl p-4">
+          <div>
+            <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
+              <ChevronRight className="w-5 h-5 text-blue-600" />
+              O que acontece agora?
+            </h3>
+            <div className="space-y-3">
               {[
-                "Guarde o e-mail utilizado no cadastro",
-                "Verifique a caixa de spam caso não receba",
-                "Em caso de dúvidas, contate o organizador",
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-2">
-                  <ChevronRight className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                  <span>{item}</span>
+                { n: "1", t: "Confirmação por WhatsApp", d: "Entraremos em contato pelo número informado para confirmar sua inscrição.", c: "bg-green-100 text-green-700" },
+                { n: "2", t: "Data do evento", d: "13 de junho de 2026 · 8h às 18h — IFB Campus Estrutural, Brasília/DF.", c: "bg-blue-100 text-blue-700" },
+                { n: "3", t: "No dia do evento", d: "Leve documento de identidade da criança e do responsável. Entrada gratuita!", c: "bg-orange-100 text-orange-700" },
+              ].map(p => (
+                <div key={p.n} className="flex gap-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${p.c}`}>
+                    {p.n}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-800 text-sm">{p.t}</p>
+                    <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{p.d}</p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+
+          <div className="rounded-2xl overflow-hidden shadow-sm bg-gradient-to-br from-blue-900 to-blue-800 text-white">
+            <div className="p-5">
+              <h3 className="text-sm font-bold text-blue-200 uppercase tracking-wide mb-4">
+                Dúvidas? Fale conosco
+              </h3>
+              <div className="space-y-3">
+                <a href="https://wa.me/5561999999999" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-4 py-3">
+                  <Phone className="w-5 h-5 text-green-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-blue-200">WhatsApp</p>
+                    <p className="text-sm font-semibold">(61) 99999-9999</p>
+                  </div>
+                </a>
+                <a href="https://instagram.com/culturadecampeoes" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-white/10 hover:bg-white/20 transition-colors rounded-xl px-4 py-3">
+                  <AtSign className="w-5 h-5 text-pink-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-blue-200">Instagram</p>
+                    <p className="text-sm font-semibold">@culturadecampeoes</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <button
+            className="w-full bg-blue-700 hover:bg-blue-800 text-white h-12 text-base font-semibold rounded-lg transition-colors"
+            onClick={() => navigate("/login")}
+          >
+            Voltar para o início
+          </button>
+
+          <p className="text-center text-xs text-gray-400 pb-4">
+            SCLRN 705, bloco E, loja 8, Asa Norte, Brasília – DF · CNPJ: 34.436.143/0001-62
+          </p>
         </div>
       </div>
     );
   }
 
-  // ── Formulário ────────────────────────────────────────────────────────────
+  // ── Formulário (steps 1–4) ─────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
-
-      {/* Hero header */}
-      <div className="px-4 pt-12 pb-8 text-center">
-        <div className="inline-flex items-center gap-2.5 mb-6">
-          <div className="w-10 h-10 bg-blue-500/20 border border-blue-400/30 rounded-xl flex items-center justify-center">
-            <Trophy className="w-6 h-6 text-blue-400" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white">
+      <header className="bg-white border-b border-gray-100 px-4 py-4 shadow-sm">
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <button onClick={() => navigate("/login")} className="text-gray-400 hover:text-gray-600 p-1">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <MrnLogo />
+          <div className="ml-1 border-l border-gray-200 pl-3">
+            <p className="text-xs font-semibold text-blue-900">Festival de Judô – Cultura de Campeões</p>
+            <p className="text-xs text-gray-400">Fomento: 986080/2025 · Entrada gratuita</p>
           </div>
-          <span className="font-black text-white text-2xl tracking-tight">Arena</span>
         </div>
-        <h1 className="text-3xl md:text-4xl font-black text-white leading-tight mb-3">
-          Cadastro de Professor
-        </h1>
-        <p className="text-blue-200 text-base max-w-md mx-auto leading-relaxed">
-          Preencha o formulário abaixo para solicitar acesso ao sistema.
-          Você receberá suas credenciais por e-mail após a aprovação.
-        </p>
-      </div>
+      </header>
 
-      {/* Steps indicator */}
-      <div className="flex items-center justify-center gap-2 mb-8 px-4">
-        {[
-          { icon: User, label: "Dados" },
-          { icon: ClipboardList, label: "Vínculo" },
-          { icon: CheckCircle, label: "Confirmação" },
-        ].map(({ icon: Icon, label }, i) => (
-          <div key={label} className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-full px-3 py-1.5">
-              <Icon className="w-3.5 h-3.5 text-blue-300" />
-              <span className="text-xs text-blue-200 font-semibold">{label}</span>
-            </div>
-            {i < 2 && <div className="w-4 h-px bg-white/20" />}
-          </div>
-        ))}
-      </div>
-
-      {/* Form card */}
-      <div className="max-w-xl mx-auto px-4 pb-16">
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-
-          {loadingEventos ? (
-            <div className="flex justify-center items-center py-20">
-              <Spinner className="w-8 h-8 text-blue-600" />
-            </div>
-          ) : eventos.length === 0 ? (
-            <div className="p-12 text-center">
-              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Calendar className="w-8 h-8 text-amber-400" />
-              </div>
-              <h3 className="font-bold text-gray-900 mb-2">Nenhum evento aberto</h3>
-              <p className="text-gray-400 text-sm">
-                Não há eventos com inscrições abertas no momento. Tente novamente mais tarde.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit(onSubmit)} noValidate>
-
-              {/* ── Seção 1: Dados pessoais ─────────────────────────── */}
-              <div className="p-6 border-b border-gray-100">
-                <SectionHeader icon={User} title="Dados pessoais" color="blue" />
-
-                <div className="space-y-4">
-                  <Field label="Nome completo" required error={errors.nome?.message}>
-                    <input
-                      {...register("nome")}
-                      placeholder="Ex: Carlos Eduardo Silva"
-                      autoComplete="name"
-                      className={inp()}
-                    />
-                  </Field>
-
-                  <Field label="CPF" required error={errors.cpf?.message}>
-                    <input
-                      {...register("cpf")}
-                      placeholder="000.000.000-00"
-                      inputMode="numeric"
-                      maxLength={14}
-                      onChange={(e) =>
-                        setValue("cpf", formatCPF(e.target.value), { shouldValidate: true })
-                      }
-                      className={inp()}
-                    />
-                  </Field>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Telefone / WhatsApp" error={errors.telefone?.message}>
-                      <input
-                        {...register("telefone")}
-                        placeholder="(61) 9 0000-0000"
-                        type="tel"
-                        className={inp()}
-                      />
-                    </Field>
-                    <Field label="Graduação" error={errors.graduacao?.message}>
-                      <input
-                        {...register("graduacao")}
-                        placeholder="Ex: Faixa Preta"
-                        className={inp()}
-                      />
-                    </Field>
-                  </div>
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {/* Steps */}
+        <div className="flex items-center mb-8">
+          {STEPS.map((s, i) => (
+            <div key={s.id} className="flex items-center flex-1">
+              <div className="flex flex-col items-center">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                  step > s.id ? "bg-green-500 text-white" :
+                  step === s.id ? "bg-blue-700 text-white shadow-md shadow-blue-200" :
+                  "bg-gray-100 text-gray-400"
+                }`}>
+                  {step > s.id ? "✓" : s.id}
                 </div>
+                <span className={`text-xs mt-1 hidden sm:block font-medium ${step === s.id ? "text-blue-700" : "text-gray-400"}`}>
+                  {s.title}
+                </span>
               </div>
+              {i < STEPS.length - 1 && (
+                <div className={`flex-1 h-0.5 mx-2 mb-4 ${step > s.id ? "bg-green-400" : "bg-gray-200"}`} />
+              )}
+            </div>
+          ))}
+        </div>
 
-              {/* ── Seção 2: Acesso ─────────────────────────────────── */}
-              <div className="p-6 border-b border-gray-100">
-                <SectionHeader icon={Mail} title="E-mail de acesso" color="indigo" />
-
-                <Field
-                  label="E-mail"
-                  required
-                  error={errors.email?.message}
-                  hint="Será o seu usuário de login. Suas credenciais serão enviadas para este endereço."
-                >
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          {/* Step 1 */}
+          {step === 1 && (
+            <div>
+              <h2 className="text-xl font-bold text-blue-900 mb-0.5">1. Dados do Participante</h2>
+              <p className="text-gray-400 text-sm mb-6">Preencha os dados da criança que irá participar do festival.</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Nome Completo da Criança *</label>
                   <input
-                    type="email"
-                    {...register("email")}
-                    placeholder="professor@email.com"
-                    autoComplete="email"
-                    className={inp()}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.nomeCompleto}
+                    onChange={e => update("nomeCompleto", e.target.value)}
+                    placeholder="Nome completo"
                   />
-                </Field>
-              </div>
-
-              {/* ── Seção 3: Vínculo ────────────────────────────────── */}
-              <div className="p-6 border-b border-gray-100">
-                <SectionHeader icon={Building2} title="Vínculo com o evento" color="teal" />
-
-                <div className="space-y-4">
-                  <Field label="Evento" required error={errors.evento_id?.message}>
-                    <select {...register("evento_id")} className={inp()}>
-                      <option value="">Selecione o evento</option>
-                      {eventos.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.nome}
-                          {e.cidade ? ` · ${e.cidade}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  {eventoSelecionado && (
-                    <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 flex items-center gap-3">
-                      <Calendar className="w-4 h-4 flex-shrink-0 text-blue-400" />
-                      <div>
-                        <span className="font-semibold">{eventoSelecionado.nome}</span>
-                        <span className="text-blue-500 ml-2">
-                          {new Date(eventoSelecionado.data_inicio + "T12:00:00").toLocaleDateString("pt-BR")}
-                          {" · "}
-                          {eventoSelecionado.local}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <Field
-                    label="Associação / Academia"
-                    required
-                    error={errors.associacao_nome?.message}
-                    hint={!eventoId ? "Selecione um evento primeiro" : undefined}
-                  >
-                    <input
-                      {...register("associacao_nome")}
-                      disabled={!eventoId}
-                      placeholder="Ex: Academia Bushido, Clube Atlético..."
-                      list="assoc-datalist"
-                      autoComplete="off"
-                      className={inp()}
-                    />
-                    {associacoes.length > 0 && (
-                      <datalist id="assoc-datalist">
-                        {associacoes.map((a) => (
-                          <option key={a.id} value={a.nome} />
-                        ))}
-                      </datalist>
-                    )}
-                  </Field>
-
-                  {eventoId && associacoes.length > 0 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
-                      <div className="flex items-start gap-2">
-                        <Building2 className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-bold text-amber-800 mb-1.5">
-                            Associações já cadastradas neste evento
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {associacoes.map((a) => (
-                              <span
-                                key={a.id}
-                                className="text-xs bg-amber-100 text-amber-900 font-semibold px-2.5 py-0.5 rounded-full"
-                              >
-                                {a.nome}
-                              </span>
-                            ))}
-                          </div>
-                          <p className="text-xs text-amber-600 mt-2 leading-relaxed">
-                            Se sua associação já está na lista, escreva o nome exato ou selecione ao digitar.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              </div>
 
-              {/* ── Aviso + Botão ────────────────────────────────────── */}
-              <div className="p-6 space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-                  <Shield className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm text-amber-800">
-                    <p className="font-semibold mb-0.5">Aprovação necessária</p>
-                    <p className="text-xs leading-relaxed text-amber-700">
-                      Após o envio, o organizador irá analisar seu cadastro. Você receberá um
-                      e-mail com suas credenciais assim que for aprovado.
-                    </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Data de Nascimento *</label>
+                    <input
+                      type="date"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.dataNascimento}
+                      onChange={e => update("dataNascimento", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Idade</label>
+                    <input
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-default"
+                      value={idade !== null ? `${idade} anos` : ""}
+                      readOnly
+                      placeholder="Calculada automaticamente"
+                    />
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-black text-base transition-all shadow-md"
-                >
-                  {submitting ? (
-                    <><Spinner className="w-5 h-5" /> Enviando cadastro...</>
-                  ) : (
-                    <><CheckCircle className="w-5 h-5" /> Enviar cadastro</>
-                  )}
-                </button>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-2">Sexo *</label>
+                  <div className="flex gap-4">
+                    {[
+                      { value: "masculino", label: "Masculino" },
+                      { value: "feminino", label: "Feminino" },
+                      { value: "outro", label: "Prefiro não informar" },
+                    ].map(op => (
+                      <label key={op.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="sexo"
+                          value={op.value}
+                          checked={form.sexo === op.value}
+                          onChange={() => update("sexo", op.value)}
+                          className="accent-blue-700"
+                        />
+                        <span className="text-sm text-gray-700">{op.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
-                <p className="text-center text-xs text-gray-400">
-                  Já possui acesso?{" "}
-                  <a href="/login" className="text-blue-600 font-semibold hover:underline">
-                    Fazer login
-                  </a>
-                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">CPF da Criança (se possuir)</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.cpfCrianca}
+                      onChange={e => update("cpfCrianca", e.target.value)}
+                      placeholder="000.000.000-00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">RG da Criança (se possuir)</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.rgCrianca}
+                      onChange={e => update("rgCrianca", e.target.value)}
+                      placeholder="Número do RG"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Órgão Expedidor do RG</label>
+                  <input
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.rgOrgaoExpedidor}
+                    onChange={e => update("rgOrgaoExpedidor", e.target.value)}
+                    placeholder="Ex: SSP/DF"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Endereço Completo *</label>
+                  <input
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.enderecoCompleto}
+                    onChange={e => update("enderecoCompleto", e.target.value)}
+                    placeholder="Rua, número, complemento, bairro, cidade – UF"
+                  />
+                </div>
               </div>
-            </form>
+            </div>
+          )}
+
+          {/* Step 2 */}
+          {step === 2 && (
+            <div>
+              <h2 className="text-xl font-bold text-blue-900 mb-0.5">2. Dados do Responsável Legal</h2>
+              <p className="text-gray-400 text-sm mb-6">Informações de quem autoriza a participação da criança.</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Nome Completo do Responsável *</label>
+                  <input
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={form.responsavelNome}
+                    onChange={e => update("responsavelNome", e.target.value)}
+                    placeholder="Nome completo"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">CPF *</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.responsavelCpf}
+                      onChange={e => update("responsavelCpf", e.target.value)}
+                      placeholder="000.000.000-00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">RG *</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.responsavelRg}
+                      onChange={e => update("responsavelRg", e.target.value)}
+                      placeholder="Número do RG"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Telefone / WhatsApp *</label>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.responsavelTelefone}
+                      onChange={e => update("responsavelTelefone", e.target.value)}
+                      placeholder="(61) 99999-9999"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">E-mail</label>
+                    <input
+                      type="email"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.responsavelEmail}
+                      onChange={e => update("responsavelEmail", e.target.value)}
+                      placeholder="email@exemplo.com"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Grau de Parentesco *</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    value={form.responsavelRelacao}
+                    onChange={e => update("responsavelRelacao", e.target.value)}
+                  >
+                    {RELACAO_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3 */}
+          {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-blue-900 mb-0.5">3. Informações Esportivas</h2>
+                <p className="text-gray-400 text-sm mb-4">Experiência da criança com o judô.</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-2">A criança já pratica judô? *</label>
+                    <div className="flex gap-6">
+                      {[{ value: false, label: "Não" }, { value: true, label: "Sim" }].map(op => (
+                        <label key={String(op.value)} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="praticaJudo"
+                            checked={form.praticaJudo === op.value}
+                            onChange={() => update("praticaJudo", op.value)}
+                            className="accent-blue-700"
+                          />
+                          <span className="text-sm text-gray-700">{op.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {form.praticaJudo && (
+                    <div className="grid grid-cols-2 gap-4 pl-1">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 block mb-1">Faixa (se houver)</label>
+                        <input
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={form.faixa}
+                          onChange={e => update("faixa", e.target.value)}
+                          placeholder="Ex: Branca, Amarela..."
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 block mb-1">Instituição / Academia</label>
+                        <input
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={form.instituicao}
+                          onChange={e => update("instituicao", e.target.value)}
+                          placeholder="Nome da academia"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 pt-5">
+                <h2 className="text-xl font-bold text-blue-900 mb-3">4. Autorização</h2>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-700 leading-relaxed">
+                  <p>
+                    Eu, <strong>{form.responsavelNome || "___________________________"}</strong>, responsável legal pelo(a) participante acima identificado(a),{" "}
+                    <strong>AUTORIZO</strong> sua participação no evento <strong>Festival de Judô – Cultura de Campeões</strong>, a ser realizado no dia <strong>13/06/2026</strong>, em Brasília/DF.
+                  </p>
+                  <p className="mt-3">
+                    Declaro estar ciente das atividades desenvolvidas durante o evento e autorizo o uso gratuito da imagem do(a) participante em registros fotográficos e audiovisuais exclusivamente para fins institucionais, educativos e de prestação de contas do projeto.
+                  </p>
+                  <p className="mt-3">
+                    Declaro, ainda, que as informações prestadas nesta ficha são verdadeiras.
+                  </p>
+                </div>
+
+                <label className="flex items-start gap-3 mt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.autorizacaoAceita}
+                    onChange={e => update("autorizacaoAceita", e.target.checked)}
+                    className="accent-blue-700 mt-0.5 w-4 h-4 flex-shrink-0"
+                  />
+                  <span className="text-sm text-gray-700">
+                    Li e concordo com os termos acima. Esta marcação equivale à minha assinatura digital.
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4 */}
+          {step === 4 && (
+            <div>
+              <h2 className="text-xl font-bold text-blue-900 mb-1">Confirme os dados</h2>
+              <p className="text-gray-400 text-sm mb-6">Verifique as informações antes de enviar a inscrição.</p>
+              <div className="space-y-4">
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">Participante</p>
+                  <p className="font-semibold text-blue-900">{form.nomeCompleto}</p>
+                  <p className="text-sm text-gray-600">Nascimento: {form.dataNascimento} {idade !== null ? `(${idade} anos)` : ""}</p>
+                  <p className="text-sm text-gray-600">Sexo: {({ masculino: "Masculino", feminino: "Feminino", outro: "Prefiro não informar" } as Record<string, string>)[form.sexo] ?? ""}</p>
+                  {form.enderecoCompleto && <p className="text-sm text-gray-600 mt-1">{form.enderecoCompleto}</p>}
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Responsável Legal</p>
+                  <p className="font-semibold text-gray-800">{form.responsavelNome}</p>
+                  <p className="text-sm text-gray-600">{form.responsavelTelefone}</p>
+                  {form.responsavelEmail && <p className="text-sm text-gray-600">{form.responsavelEmail}</p>}
+                  <p className="text-sm text-gray-500 mt-1">
+                    {RELACAO_OPTIONS.find(r => r.value === form.responsavelRelacao)?.label}
+                  </p>
+                </div>
+
+                <div className="bg-orange-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-2">Informações Esportivas</p>
+                  <p className="text-sm text-gray-700">
+                    Pratica judô: <strong>{form.praticaJudo ? "Sim" : "Não"}</strong>
+                    {form.praticaJudo && form.faixa && ` · Faixa: ${form.faixa}`}
+                    {form.praticaJudo && form.instituicao && ` · ${form.instituicao}`}
+                  </p>
+                </div>
+
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800">
+                  <p className="font-semibold flex items-center gap-1.5 mb-1">
+                    <CheckCircle className="w-4 h-4" /> Autorização aceita digitalmente
+                  </p>
+                  <p className="text-xs text-green-600">
+                    Festival de Judô – Cultura de Campeões · 13/06/2026 · Fomento 986080/2025
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 bg-blue-50 rounded-xl p-3 text-xs text-blue-700">
+                  <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>IFB Campus Estrutural · Estrutural – Brasília/DF · Evento gratuito</span>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
 
-// ── Auxiliares ───────────────────────────────────────────────────────────────
+        {/* Navigation */}
+        <div className="flex justify-between mt-6">
+          <button
+            onClick={() => step > 1 ? setStep(s => s - 1) : navigate("/login")}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            {step === 1 ? "Cancelar" : "Anterior"}
+          </button>
 
-const COLOR_MAP: Record<string, string> = {
-  blue:   "bg-blue-50 text-blue-600",
-  indigo: "bg-indigo-50 text-indigo-600",
-  teal:   "bg-teal-50 text-teal-600",
-};
+          {step < 4 ? (
+            <button
+              onClick={() => setStep(s => s + 1)}
+              disabled={!canNext()}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              Próximo
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={enviando}
+              className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors min-w-[160px] justify-center"
+            >
+              {enviando ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Enviando...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Enviar Inscrição
+                </>
+              )}
+            </button>
+          )}
+        </div>
 
-function SectionHeader({ icon: Icon, title, color }: { icon: React.ElementType; title: string; color: string }) {
-  return (
-    <div className="flex items-center gap-3 mb-4">
-      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${COLOR_MAP[color]}`}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <p className="font-bold text-gray-900 text-sm">{title}</p>
-    </div>
-  );
-}
-
-function Field({
-  label, required, error, hint, children,
-}: {
-  label: string;
-  required?: boolean;
-  error?: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-        {label}
-        {required && <span className="text-red-400 ml-1">*</span>}
-      </label>
-      {children}
-      {hint && !error && (
-        <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">{hint}</p>
-      )}
-      {error && (
-        <p className="flex items-center gap-1 text-red-500 text-xs mt-1.5">
-          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
+        <p className="text-center text-xs text-gray-400 mt-6">
+          SCLRN 705, bloco E, loja 8, Asa Norte, Brasília – DF · CNPJ: 34.436.143/0001-62
+          <br />associacaomrneducacional@gmail.com
         </p>
-      )}
+      </div>
     </div>
   );
-}
-
-function inp() {
-  return "w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed";
 }
