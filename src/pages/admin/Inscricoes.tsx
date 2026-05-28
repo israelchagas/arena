@@ -28,7 +28,7 @@ const schema = z.object({
   professor_id:           z.string().min(1, "Selecione o professor"),
   atleta_nome:            z.string().min(3, "Mínimo 3 caracteres"),
   atleta_data_nascimento: z.string().min(1, "Obrigatório"),
-  atleta_sexo:            z.enum(["M", "F"], { required_error: "Selecione o sexo" }),
+  atleta_sexo:            z.enum(["M", "F", "outro"], { required_error: "Selecione o sexo" }),
   categoria_id:           z.string().min(1, "Selecione a categoria"),
   atleta_faixa:           z.string().min(1, "Selecione a graduação"),
   atleta_peso:            z.coerce.number().min(1, "Informe o peso").max(300),
@@ -54,6 +54,7 @@ export default function AdminInscricoes() {
   const [search, setSearch] = useState("");
   const [eventoFiltro, setEventoFiltro] = useState("todos");
   const [statusFiltro, setStatusFiltro] = useState("todos");
+  const [origemFiltro, setOrigemFiltro] = useState<"todos" | "festival" | "regular">("todos");
 
   // Modal
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
@@ -215,7 +216,10 @@ export default function AdminInscricoes() {
     const matchSearch = !search || i.atleta_nome.toLowerCase().includes(search.toLowerCase());
     const matchEvento = eventoFiltro === "todos" || i.evento_id === eventoFiltro;
     const matchStatus = statusFiltro === "todos" || i.status === statusFiltro;
-    return matchSearch && matchEvento && matchStatus;
+    const matchOrigem = origemFiltro === "todos"
+      || (origemFiltro === "festival" && !!i.numero_inscricao)
+      || (origemFiltro === "regular" && !i.numero_inscricao);
+    return matchSearch && matchEvento && matchStatus && matchOrigem;
   });
 
   const totais = {
@@ -223,6 +227,135 @@ export default function AdminInscricoes() {
     pendente:   inscricoes.filter((i) => i.status === "pendente").length,
     cancelado:  inscricoes.filter((i) => i.status === "cancelado").length,
   };
+
+  function exportarFichas() {
+    const fichas = filtered.filter((i) => i.numero_inscricao);
+    if (fichas.length === 0) {
+      toast.info("Nenhuma ficha pública encontrada na seleção atual.");
+      return;
+    }
+
+    const sexoLabel: Record<string, string> = { M: "Masculino", F: "Feminino", outro: "Prefiro não informar" };
+    const relacaoLabel: Record<string, string> = {
+      pai: "Pai", mae: "Mãe", avo: "Avô", ava: "Avó",
+      tio: "Tio", tia: "Tia", tutor: "Tutor(a)", outro: "Outro",
+    };
+    const fmt = (d: string) => { if (!d) return ""; const [y,m,dd] = d.split("-"); return `${dd}/${m}/${y}`; };
+    const campo = (label: string, valor?: string | null) =>
+      `<tr><td class="label">${label}</td><td class="valor">${valor || "—"}</td></tr>`;
+
+    const fichasHtml = fichas.map((i) => `
+      <div class="ficha">
+        <div class="ficha-header">
+          <div class="logo-bloco">
+            <div class="logo-mrn">MRN Educacional</div>
+            <div class="logo-sub">Festival de Judô – Cultura de Campeões · Fomento: 986080/2025</div>
+          </div>
+          <div class="protocolo-bloco">
+            <div class="protocolo-label">PROTOCOLO</div>
+            <div class="protocolo-num">${i.numero_inscricao}</div>
+          </div>
+        </div>
+
+        <div class="secao">
+          <div class="secao-titulo">1. Dados do Participante</div>
+          <table>${[
+            campo("Nome completo", i.atleta_nome),
+            campo("Data de nascimento", fmt(i.atleta_data_nascimento)),
+            campo("Sexo", sexoLabel[i.atleta_sexo] ?? i.atleta_sexo),
+            campo("CPF", i.atleta_cpf),
+            campo("RG / Órgão expedidor", i.atleta_rg ? `${i.atleta_rg}${i.atleta_rg_orgao ? " / " + i.atleta_rg_orgao : ""}` : null),
+            campo("Endereço completo", i.atleta_endereco),
+          ].join("")}</table>
+        </div>
+
+        <div class="secao">
+          <div class="secao-titulo">2. Dados do Responsável Legal</div>
+          <table>${[
+            campo("Nome completo", i.responsavel_nome),
+            campo("Grau de parentesco", i.responsavel_relacao ? relacaoLabel[i.responsavel_relacao] ?? i.responsavel_relacao : null),
+            campo("CPF", i.responsavel_cpf),
+            campo("RG", i.responsavel_rg),
+            campo("Telefone / WhatsApp", i.responsavel_tel),
+            campo("E-mail", i.responsavel_email),
+          ].join("")}</table>
+        </div>
+
+        <div class="secao">
+          <div class="secao-titulo">3. Informações Esportivas</div>
+          <table>${[
+            campo("Pratica judô", i.pratica_judo ? "Sim" : "Não"),
+            i.pratica_judo ? campo("Faixa", i.atleta_faixa) : "",
+            i.pratica_judo ? campo("Instituição / Academia", i.instituicao_judo) : "",
+          ].join("")}</table>
+        </div>
+
+        <div class="secao autorizacao">
+          <div class="secao-titulo">4. Autorização</div>
+          <p>
+            Eu, <strong>${i.responsavel_nome || "___________________________"}</strong>, responsável legal pelo(a) participante
+            acima identificado(a), <strong>AUTORIZO</strong> sua participação no evento
+            <strong>Festival de Judô – Cultura de Campeões</strong>, a ser realizado no dia <strong>13/06/2026</strong>,
+            em Brasília/DF, e autorizo o uso gratuito da imagem para fins institucionais e de prestação de contas do projeto.
+          </p>
+          <div class="ass-linha">
+            ${i.autorizacao_aceita
+              ? `<span class="ass-ok">✅ Autorização aceita digitalmente</span>`
+              : `<span>Assinatura: _______________________________________________</span>`}
+          </div>
+        </div>
+
+        <div class="ficha-footer">
+          SCLRN 705, bloco E, loja 8, Asa Norte, Brasília – DF &nbsp;·&nbsp; CNPJ: 34.436.143/0001-62
+          &nbsp;·&nbsp; associacaomrneducacional@gmail.com
+        </div>
+      </div>
+    `).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Fichas de Inscrição – Festival de Judô</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #222; background: #fff; }
+  .ficha { width: 190mm; margin: 0 auto; padding: 10mm 12mm; page-break-after: always; border: 1px solid #ccc; }
+  .ficha:last-child { page-break-after: auto; }
+  .ficha-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1565C0; padding-bottom: 8px; margin-bottom: 12px; }
+  .logo-mrn { font-size: 16px; font-weight: 900; color: #1565C0; }
+  .logo-sub { font-size: 10px; color: #555; margin-top: 2px; }
+  .protocolo-bloco { text-align: right; }
+  .protocolo-label { font-size: 9px; color: #888; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .protocolo-num { font-size: 18px; font-weight: 900; color: #1565C0; font-family: monospace; letter-spacing: 2px; }
+  .secao { margin-bottom: 10px; }
+  .secao-titulo { font-size: 10px; font-weight: 700; color: #1565C0; text-transform: uppercase; letter-spacing: 1px; border-left: 3px solid #1565C0; padding-left: 6px; margin-bottom: 5px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 2.5px 4px; vertical-align: top; }
+  td.label { width: 38%; color: #555; font-size: 10px; }
+  td.valor { font-weight: 600; font-size: 11px; }
+  .autorizacao p { font-size: 10.5px; line-height: 1.6; color: #333; margin-bottom: 8px; }
+  .ass-linha { border-top: 1px solid #aaa; padding-top: 4px; font-size: 10px; color: #444; }
+  .ass-ok { color: #16a34a; font-weight: 700; }
+  .ficha-footer { margin-top: 10px; border-top: 1px solid #eee; padding-top: 6px; font-size: 9px; color: #888; text-align: center; }
+  @media print {
+    body { background: #fff; }
+    .ficha { border: none; margin: 0; padding: 8mm 10mm; }
+  }
+</style>
+</head>
+<body>${fichasHtml}</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fichas-festival-${new Date().toISOString().slice(0,10)}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${fichas.length} ficha${fichas.length !== 1 ? "s" : ""} exportada${fichas.length !== 1 ? "s" : ""}!`);
+  }
 
   function exportCSV() {
     const header = "Nome,Data Nasc.,Idade,Sexo,Faixa,Peso,Categoria,Associação,Professor,Status";
@@ -286,6 +419,15 @@ export default function AdminInscricoes() {
               <option value="todos">Todos os eventos</option>
               {eventos.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
             </select>
+            <select value={origemFiltro} onChange={(e) => setOrigemFiltro(e.target.value as any)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="todos">Todas as origens</option>
+              <option value="festival">🏅 Festival (público)</option>
+              <option value="regular">📋 Regular (professor)</option>
+            </select>
+            <button onClick={exportarFichas} className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 hover:bg-blue-100 transition-all font-semibold">
+              <Download className="w-4 h-4" /> Exportar Fichas
+            </button>
             <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-all font-semibold">
               <Download className="w-4 h-4" /> Exportar CSV
             </button>
@@ -324,6 +466,11 @@ export default function AdminInscricoes() {
                             {i.atleta_faixa && <span className="text-purple-600 font-medium">{i.atleta_faixa}</span>}
                             {(i.categorias as any)?.nome && <span className="text-blue-500">{(i.categorias as any).nome}</span>}
                             {(i.associacoes as any)?.nome && <span>{(i.associacoes as any).nome}</span>}
+                            {i.numero_inscricao && (
+                              <span className="bg-blue-100 text-blue-700 font-mono font-semibold px-1.5 py-0.5 rounded text-[10px]">
+                                🏅 {i.numero_inscricao}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

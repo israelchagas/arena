@@ -187,17 +187,12 @@ export const handler = async (event) => {
       return respond({ error: "Dados incompletos" }, 400);
     }
 
-    const to = [];
-    if (data.responsavel_email) to.push(data.responsavel_email);
-
-    // Sempre envia cópia para a organização
-    const bcc = ["associacaomrneducacional@gmail.com"];
-
-    if (to.length === 0) {
-      // Se não tem email do responsável, envia só para a organização
-      to.push("associacaomrneducacional@gmail.com");
-      bcc.length = 0;
+    if (!data.responsavel_email) {
+      return respond({ skipped: true, reason: "sem e-mail do responsável" });
     }
+
+    const to = [data.responsavel_email];
+    const bcc = [];
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
