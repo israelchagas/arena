@@ -113,7 +113,7 @@ export default function ProfessorDashboard() {
     editForm.reset({
       atleta_nome:            insc.atleta_nome,
       atleta_data_nascimento: insc.atleta_data_nascimento,
-      atleta_sexo:            insc.atleta_sexo,
+      atleta_sexo:            insc.atleta_sexo as "M" | "F",
       categoria_id:           insc.categoria_id ?? "",
       atleta_faixa:           insc.atleta_faixa ?? "",
       atleta_peso:            insc.atleta_peso ?? undefined,
