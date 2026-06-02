@@ -22,6 +22,7 @@ import RetiradaItens from "@/pages/RetiradaItens";
 import Certificado from "@/pages/Certificado";
 import CadastroProfessor from "@/pages/CadastroProfessor";
 import InscricaoPublica from "@/pages/InscricaoPublica";
+import FestivalDashboard from "@/pages/FestivalDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
@@ -61,7 +62,7 @@ function ProtectedRoute({
 // ── Router ───────────────────────────────────────────────────────────────────
 
 // Rotas que não devem disparar redirect automático (públicas ou já protegidas)
-const SKIP_REDIRECT = ["/login", "/professor", "/admin", "/checkin", "/retirada", "/certificado", "/cadastro", "/inscrever"];
+const SKIP_REDIRECT = ["/login", "/professor", "/admin", "/checkin", "/retirada", "/certificado", "/cadastro", "/inscrever", "/festival"];
 
 function AppRouter() {
   const { profile, loading } = useAuth();
@@ -129,6 +130,9 @@ function AppRouter() {
 
       {/* Certificado — público */}
       <Route path="/certificado/:token" component={Certificado} />
+
+      {/* Dashboard público do festival */}
+      <Route path="/festival" component={FestivalDashboard} />
 
       {/* Cadastro público de professor */}
       <Route path="/cadastro" component={CadastroProfessor} />
