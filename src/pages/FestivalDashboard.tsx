@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { Trophy, Users, Clock, CalendarDays, MapPin, ArrowRight } from "lucide-react";
 
 const META = 250;
@@ -39,11 +38,10 @@ export default function FestivalDashboard() {
   const [countdown, setCountdown] = useState(calcCountdown());
 
   useEffect(() => {
-    supabase
-      .from("inscricoes")
-      .select("id", { count: "exact", head: true })
-      .not("numero_inscricao", "is", null)
-      .then(({ count: c }) => setCount(c ?? 0));
+    fetch("/.netlify/functions/get-festival-count")
+      .then((r) => r.json())
+      .then((d) => setCount(d.count ?? 0))
+      .catch(() => setCount(0));
   }, []);
 
   useEffect(() => {
