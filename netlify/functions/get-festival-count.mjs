@@ -15,13 +15,13 @@ export const handler = async (event) => {
   }
 
   const res = await fetch(
-    `${supabaseUrl}/rest/v1/inscricoes?select=id&schema=arena`,
+    `${supabaseUrl}/rest/v1/inscricoes?select=id`,
     {
       method: "HEAD",
       headers: {
         apikey: serviceKey,
         Authorization: `Bearer ${serviceKey}`,
-        "Content-Type": "application/json",
+        "Accept-Profile": "arena",
         Prefer: "count=exact",
       },
     }
