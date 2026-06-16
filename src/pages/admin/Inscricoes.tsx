@@ -229,7 +229,7 @@ export default function AdminInscricoes() {
   };
 
   function exportarFichas() {
-    const fichas = filtered.filter((i) => i.numero_inscricao);
+    const fichas = inscricoes.filter((i) => i.numero_inscricao);
     if (fichas.length === 0) {
       toast.info("Nenhuma ficha pública encontrada na seleção atual.");
       return;
